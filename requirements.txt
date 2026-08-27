@@ -1,0 +1,16 @@
+# Runtime dependencies.
+aiogram>=3.13,<4
+fastapi>=0.115,<1
+uvicorn[standard]>=0.32,<1
+SQLAlchemy[asyncio]>=2.0.36,<2.1
+asyncpg>=0.30,<0.31
+alembic>=1.14,<2
+pydantic>=2.9,<3
+pydantic-settings>=2.6,<3
+openpyxl>=3.1,<4
+# Hardens openpyxl's XML parsing against malicious workbooks (openpyxl uses it
+# automatically when installed).
+defusedxml>=0.7.1
+# IANA timezone database: zoneinfo has no system tzdata on Windows and on slim
+# container images.
+tzdata>=2024.1
