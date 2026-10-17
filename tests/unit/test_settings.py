@@ -77,3 +77,26 @@ def test_webhook_token_is_always_valid_for_telegram() -> None:
 def test_something_else_pasted_as_database_url_is_explained() -> None:
     with pytest.raises(ValueError, match="not a database address"):
         Settings(_env_file=None, DATABASE_URL="1234567890:AAHtoken")  # type: ignore[call-arg]
+
+
+@pytest.mark.parametrize(
+    "pasted",
+    [
+        "1234567890:AAHabcdefghijklmnopqrstuvwxyz012345",
+        "  1234567890:AAHabcdefghijklmnopqrstuvwxyz012345\n",
+        "Use this token to access the HTTP API:\n"
+        "1234567890:AAHabcdefghijklmnopqrstuvwxyz012345\nKeep your token secure",
+    ],
+)
+def test_bot_token_is_picked_out_of_the_botfather_message(pasted: str) -> None:
+    settings = Settings(_env_file=None, BOT_TOKEN=pasted)  # type: ignore[call-arg]
+    assert settings.bot_token.get_secret_value() == "1234567890:AAHabcdefghijklmnopqrstuvwxyz012345"
+
+
+def test_startup_hints_explain_token_problems() -> None:
+    from aiogram.utils.token import TokenValidationError
+
+    from app.main import _startup_hint
+
+    assert "BOT_TOKEN" in (_startup_hint(TokenValidationError("bad")) or "")
+    assert _startup_hint(ValueError("other")) is None

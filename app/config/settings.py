@@ -92,6 +92,16 @@ class Settings(BaseSettings):
     rate_limit_messages: int = Field(default=20, ge=1, alias="RATE_LIMIT_MESSAGES")
     rate_limit_window_seconds: int = Field(default=10, ge=1, alias="RATE_LIMIT_WINDOW_SECONDS")
 
+    @field_validator("bot_token", mode="before")
+    @classmethod
+    def _extract_bot_token(cls, value: object) -> object:
+        """Accept the token even if the whole BotFather message was pasted."""
+        raw = value.get_secret_value() if isinstance(value, SecretStr) else value
+        if not isinstance(raw, str):
+            return value
+        found = _BOT_TOKEN.search(raw)
+        return found.group(0) if found else raw.strip()
+
     @field_validator("database_url", "test_database_url")
     @classmethod
     def _normalize_database_url(cls, value: str | None) -> str | None:
@@ -162,6 +172,8 @@ class Settings(BaseSettings):
 
 WEBHOOK_PATH = "/telegram/webhook"
 
+#: ``<bot id>:<secret>`` as issued by @BotFather.
+_BOT_TOKEN = re.compile(r"\d{5,}:[A-Za-z0-9_-]{30,}")
 _POSTGRES_URL = re.compile(r"postgres(?:ql)?(?:\+asyncpg)?://[^\s'\"`]+")
 
 #: libpq query options that asyncpg does not understand.

@@ -23,6 +23,8 @@ from contextlib import asynccontextmanager
 
 import uvicorn
 from aiogram import Bot, Dispatcher
+from aiogram.exceptions import TelegramNetworkError, TelegramUnauthorizedError
+from aiogram.utils.token import TokenValidationError
 from fastapi import FastAPI
 
 from app import __version__
@@ -188,9 +190,30 @@ def main() -> None:
         asyncio.run(run())
     except (KeyboardInterrupt, SystemExit):  # pragma: no cover - manual stop
         logger.info("stopped by user")
-    except Exception:
+    except Exception as exc:
+        hint = _startup_hint(exc)
+        if hint:
+            # One plain line first: hosting logs are read on a phone.
+            logging.getLogger(__name__).error("startup failed: %s", hint)
         logging.getLogger(__name__).exception("fatal error")
         sys.exit(1)
+
+
+def _startup_hint(exc: BaseException) -> str | None:
+    """Human explanation for the start-up failures a deployment usually hits."""
+    if isinstance(exc, TokenValidationError):
+        return (
+            "BOT_TOKEN is not a bot token. Copy the token from @BotFather "
+            "(it looks like 1234567890:AAH...) and paste it again."
+        )
+    if isinstance(exc, TelegramUnauthorizedError):
+        return (
+            "Telegram rejected BOT_TOKEN (Unauthorized). Copy the current token from "
+            "@BotFather -> your bot -> API Token and paste it again."
+        )
+    if isinstance(exc, OSError | TelegramNetworkError):
+        return f"network problem while starting: {exc}"
+    return None
 
 
 if __name__ == "__main__":
