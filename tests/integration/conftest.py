@@ -6,7 +6,6 @@ The whole module self-skips when ``TEST_DATABASE_URL`` is not configured, so
 
 from __future__ import annotations
 
-import datetime as dt
 import os
 from collections.abc import AsyncIterator, Iterator
 
@@ -23,20 +22,26 @@ from sqlalchemy.pool import NullPool
 
 from alembic import command
 from app.config.settings import Settings, get_settings
-from app.domain.timeutils import utcnow
-from app.models.enums import ParticipantSelectionMode, ProcurementStatus, UserRole
-from app.models.procurement import Procurement
+from app.models.content import Course, Lesson
+from app.models.enums import (
+    Audience,
+    ClientCategory,
+    ContentStatus,
+    CourseDelivery,
+    UserRole,
+)
 from app.models.user import User
-from app.services.procurement_service import ProcurementDraftInput, ProcurementService
 
 TABLES = (
     "audit_logs",
-    "status_history",
-    "purchase_request_items",
-    "purchase_requests",
-    "procurement_participants",
-    "procurements",
-    "invites",
+    "application_messages",
+    "applications",
+    "lesson_progress",
+    "lesson_questions",
+    "lessons",
+    "courses",
+    "faq_entries",
+    "bot_texts",
     "number_counters",
     "users",
 )
@@ -85,9 +90,7 @@ def migrated_database(database_url: str) -> Iterator[str]:
 async def engine(migrated_database: str) -> AsyncIterator[AsyncEngine]:
     created = create_async_engine(migrated_database, poolclass=NullPool, future=True)
     async with created.begin() as connection:
-        await connection.execute(
-            text(f"TRUNCATE {', '.join(TABLES)} RESTART IDENTITY CASCADE")
-        )
+        await connection.execute(text(f"TRUNCATE {', '.join(TABLES)} RESTART IDENTITY CASCADE"))
     yield created
     await created.dispose()
 
@@ -116,16 +119,18 @@ async def create_user(
     *,
     telegram_id: int,
     full_name: str,
-    role: UserRole = UserRole.PURCHASER,
+    role: UserRole = UserRole.CLIENT,
+    category: ClientCategory | None = ClientCategory.SUPPLIER,
+    phone: str | None = "+996555000111",
     is_active: bool = True,
-    revoked_at: dt.datetime | None = None,
 ) -> User:
     user = User(
         telegram_id=telegram_id,
         full_name=full_name,
         role=role,
+        category=category,
+        phone=phone,
         is_active=is_active,
-        revoked_at=revoked_at,
     )
     session.add(user)
     await session.commit()
@@ -133,42 +138,63 @@ async def create_user(
 
 
 @pytest.fixture
-async def employee(session: AsyncSession) -> User:
+async def admin(session: AsyncSession) -> User:
     return await create_user(
         session,
         telegram_id=1001,
-        full_name="Сотрудник Тендера",
-        role=UserRole.TENDER_EMPLOYEE,
+        full_name="Администратор Центра",
+        role=UserRole.ADMIN,
+        category=None,
     )
 
 
 @pytest.fixture
-async def purchasers(session: AsyncSession) -> list[User]:
-    return [
-        await create_user(session, telegram_id=2001, full_name="Иван Иванов"),
-        await create_user(session, telegram_id=2002, full_name="Азамат Садыков"),
-        await create_user(session, telegram_id=2003, full_name="Данияр Алиев"),
-    ]
+async def client(session: AsyncSession) -> User:
+    return await create_user(session, telegram_id=2001, full_name="Айгуль Садыкова")
 
 
-async def make_open_procurement(
-    session: AsyncSession,
-    employee: User,
-    participants: list[User],
-    *,
-    title: str = "Продукты питания на сентябрь",
-    deadline: dt.datetime | None = None,
-) -> Procurement:
-    service = ProcurementService(session)
-    result = await service.create_and_publish(
-        employee,
-        ProcurementDraftInput(
-            title=title,
-            deadline=deadline or (utcnow() + dt.timedelta(days=3)),
-            description="Сбор потребности подразделений.",
-            participant_mode=ParticipantSelectionMode.MANUAL,
-            participant_ids=[user.id for user in participants],
-        ),
+@pytest.fixture
+async def other_client(session: AsyncSession) -> User:
+    return await create_user(
+        session, telegram_id=2002, full_name="Данияр Алиев", category=ClientCategory.PURCHASER
     )
-    assert result.procurement.status is ProcurementStatus.OPEN
-    return result.procurement
+
+
+async def create_course(
+    session: AsyncSession,
+    *,
+    title: str = "Портал госзакупок с нуля",
+    audience: Audience = Audience.ALL,
+    status: ContentStatus = ContentStatus.PUBLISHED,
+    position: int = 0,
+) -> Course:
+    course = Course(
+        title=title,
+        description="Три дня практики",
+        audience=audience,
+        delivery=CourseDelivery.ONLINE,
+        schedule="15–17 ноября",
+        price="4 500 сом",
+        location="",
+        status=status,
+        position=position,
+    )
+    session.add(course)
+    await session.commit()
+    return course
+
+
+async def create_lesson(
+    session: AsyncSession,
+    *,
+    title: str,
+    position: int,
+    audience: Audience = Audience.ALL,
+    status: ContentStatus = ContentStatus.PUBLISHED,
+) -> Lesson:
+    lesson = Lesson(
+        title=title, body=f"Текст: {title}", audience=audience, position=position, status=status
+    )
+    session.add(lesson)
+    await session.commit()
+    return lesson

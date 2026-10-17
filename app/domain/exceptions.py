@@ -33,25 +33,13 @@ class InvalidStatusTransitionError(DomainError):
     default_message = "Недопустимое изменение статуса."
 
 
-class DeadlineExpiredError(DomainError):
-    default_message = "Срок подачи заявок по этой закупке уже истек."
+class DuplicateApplicationError(DomainError):
+    default_message = "Вы уже записаны — заявка рассматривается."
 
 
-class NotAParticipantError(PermissionDeniedError):
-    default_message = "Эта закупка вам недоступна."
+class ApplicationClosedError(DomainError):
+    default_message = "Эта заявка уже закрыта."
 
 
-class ProcurementNotAcceptingError(DomainError):
-    default_message = "Эта закупка сейчас не принимает заявки."
-
-
-class DuplicateSubmissionError(DomainError):
-    default_message = "Заявка по этой закупке уже отправлена."
-
-
-class LimitExceededError(DomainError):
-    default_message = "Превышено допустимое ограничение."
-
-
-class InviteError(DomainError):
-    default_message = "Приглашение недействительно или уже использовано."
+class ContentUnavailableError(DomainError):
+    default_message = "Этот материал сейчас недоступен."

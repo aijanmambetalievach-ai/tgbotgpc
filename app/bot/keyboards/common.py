@@ -13,30 +13,47 @@ from aiogram.types import (
 )
 
 from app.bot import texts
-from app.bot.callbacks import NoopCB
-from app.models.enums import UserRole
+from app.bot.callbacks import FlowCB, NoopCB
 
 
-def main_menu(role: UserRole) -> ReplyKeyboardMarkup:
-    """Persistent reply keyboard — users never have to remember commands."""
-    if role in (UserRole.TENDER_EMPLOYEE, UserRole.ADMIN):
-        rows = [
-            [
-                KeyboardButton(text=texts.BTN_NEW_REQUESTS),
-                KeyboardButton(text=texts.BTN_PROCUREMENTS),
-            ],
-            [KeyboardButton(text=texts.BTN_CREATE_PROCUREMENT)],
-            [KeyboardButton(text=texts.BTN_PURCHASERS), KeyboardButton(text=texts.BTN_STATISTICS)],
-            [KeyboardButton(text=texts.BTN_SETTINGS)],
-        ]
-    else:
-        rows = [
-            [KeyboardButton(text=texts.BTN_ACTIVE_PROCUREMENTS)],
-            [KeyboardButton(text=texts.BTN_CREATE_REQUEST)],
-            [KeyboardButton(text=texts.BTN_MY_REQUESTS), KeyboardButton(text=texts.BTN_HISTORY)],
-            [KeyboardButton(text=texts.BTN_HELP)],
-        ]
+def client_menu() -> ReplyKeyboardMarkup:
+    """Persistent reply keyboard — clients never have to remember commands."""
+    rows = [
+        [KeyboardButton(text=texts.BTN_TRAINING), KeyboardButton(text=texts.BTN_CONSULTATION)],
+        [KeyboardButton(text=texts.BTN_MY_APPLICATIONS), KeyboardButton(text=texts.BTN_FAQ)],
+        [KeyboardButton(text=texts.BTN_ABOUT), KeyboardButton(text=texts.BTN_PROFILE)],
+    ]
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
+
+
+def admin_menu() -> ReplyKeyboardMarkup:
+    rows = [
+        [
+            KeyboardButton(text=texts.BTN_ADMIN_APPLICATIONS),
+            KeyboardButton(text=texts.BTN_ADMIN_STATS),
+        ],
+        [
+            KeyboardButton(text=texts.BTN_ADMIN_COURSES),
+            KeyboardButton(text=texts.BTN_ADMIN_LESSONS),
+        ],
+        [KeyboardButton(text=texts.BTN_ADMIN_FAQ), KeyboardButton(text=texts.BTN_ADMIN_CLIENTS)],
+        [
+            KeyboardButton(text=texts.BTN_ADMIN_BROADCAST),
+            KeyboardButton(text=texts.BTN_ADMIN_SETTINGS),
+        ],
+    ]
+    return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
+
+
+def share_phone() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text=texts.BTN_SHARE_PHONE, request_contact=True)],
+            [KeyboardButton(text=texts.BTN_CANCEL)],
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=True,
+    )
 
 
 def remove_keyboard() -> ReplyKeyboardRemove:
@@ -46,7 +63,7 @@ def remove_keyboard() -> ReplyKeyboardRemove:
 def pagination_row(
     build: Callable[[int], str], current_page: int, total_pages: int
 ) -> list[InlineKeyboardButton]:
-    """``‹ Назад | 2/7 | Вперед ›`` — only rendered when there is more than one page."""
+    """``‹ | 2/7 | ›`` — only rendered when there is more than one page."""
     if total_pages <= 1:
         return []
     buttons: list[InlineKeyboardButton] = []
@@ -62,20 +79,50 @@ def pagination_row(
     return buttons
 
 
+def button(text: str, callback_data: str) -> InlineKeyboardButton:
+    return InlineKeyboardButton(text=text, callback_data=callback_data)
+
+
 def single_button(text: str, callback_data: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text=text, callback_data=callback_data)]]
-    )
+    return InlineKeyboardMarkup(inline_keyboard=[[button(text, callback_data)]])
 
 
 def confirm_cancel(
     confirm_text: str, confirm_data: str, cancel_text: str, cancel_data: str
 ) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
+        inline_keyboard=[[button(confirm_text, confirm_data), button(cancel_text, cancel_data)]]
+    )
+
+
+def flow_cancel() -> InlineKeyboardMarkup:
+    return single_button(texts.BTN_CANCEL, FlowCB(action="cancel").pack())
+
+
+def flow_skip_cancel() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text=confirm_text, callback_data=confirm_data),
-                InlineKeyboardButton(text=cancel_text, callback_data=cancel_data),
+                button("⏭ Пропустить", FlowCB(action="skip").pack()),
+                button(texts.BTN_CANCEL, FlowCB(action="cancel").pack()),
             ]
         ]
     )
+
+
+def flow_choices(
+    choices: list[tuple[str, str]], action: str, columns: int = 1, cancel: bool = True
+) -> InlineKeyboardMarkup:
+    """One button per ``(value, label)``; all carry the same ``action``."""
+    rows: list[list[InlineKeyboardButton]] = []
+    row: list[InlineKeyboardButton] = []
+    for value, label in choices:
+        row.append(button(label, FlowCB(action=action, value=value).pack()))
+        if len(row) == columns:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    if cancel:
+        rows.append([button(texts.BTN_CANCEL, FlowCB(action="cancel").pack())])
+    return InlineKeyboardMarkup(inline_keyboard=rows)

@@ -1,364 +1,239 @@
-"""initial schema
+"""Initial schema: clients, training content, applications and conversations.
 
-Revision ID: 0001
+Revision ID: 0001_consulting
 Revises:
-Create Date: 2026-08-22
-
-Creates the full MVP schema: users, invites, procurements, participants,
-purchase requests and items, status history, audit log and the number
-counters used for concurrency-safe TENDER-/REQ- numbering.
+Create Date: 2026-10-17
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision: str = "0001"
-down_revision: str | None = None
-branch_labels: str | Sequence[str] | None = None
-depends_on: str | Sequence[str] | None = None
+from alembic import op
 
-USER_ROLE = sa.Enum(
-    "ADMIN",
-    "TENDER_EMPLOYEE",
-    "PURCHASER",
-    native_enum=False,
-    length=32,
-    name="user_role",
-)
-PROCUREMENT_STATUS = sa.Enum(
-    "DRAFT",
-    "OPEN",
-    "CLOSED",
-    "CANCELLED",
-    "COMPLETED",
-    native_enum=False,
-    length=32,
-    name="procurement_status",
-)
-PARTICIPANT_MODE = sa.Enum(
-    "ALL_ACTIVE",
-    "MANUAL",
-    native_enum=False,
-    length=32,
-    name="participant_selection_mode",
-)
-REQUEST_STATUS = sa.Enum(
-    "DRAFT",
-    "SUBMITTED",
-    "VIEWED",
-    "IN_PROGRESS",
-    "COMPLETED",
-    "REJECTED",
-    "CANCELLED",
-    native_enum=False,
-    length=32,
-    name="purchase_request_status",
-)
+revision = "0001_consulting"
+down_revision = None
+branch_labels = None
+depends_on = None
+
+
+def _timestamps() -> list[sa.Column]:
+    return [
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
+    ]
+
+
+def _enum(length: int = 32) -> sa.String:
+    """Enums are stored as VARCHAR (``native_enum=False``): adding a value
+    never needs an ``ALTER TYPE`` migration."""
+    return sa.String(length=length)
 
 
 def upgrade() -> None:
-    # --- users ------------------------------------------------------------
     op.create_table(
         "users",
         sa.Column("id", sa.BigInteger(), autoincrement=True, nullable=False),
         sa.Column("telegram_id", sa.BigInteger(), nullable=False),
         sa.Column("telegram_username", sa.String(length=64), nullable=True),
         sa.Column("full_name", sa.String(length=255), nullable=False),
-        sa.Column("role", USER_ROLE, nullable=False),
+        sa.Column("phone", sa.String(length=32), nullable=True),
+        sa.Column("organization", sa.String(length=255), nullable=True),
+        sa.Column("role", _enum(), nullable=False),
+        sa.Column("category", _enum(), nullable=True),
         sa.Column("is_active", sa.Boolean(), nullable=False),
+        *_timestamps(),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_users")),
+    )
+    op.create_index("ix_users_telegram_id", "users", ["telegram_id"], unique=True)
+    op.create_index("ix_users_role_is_active", "users", ["role", "is_active"])
+    op.create_index("ix_users_category", "users", ["category"])
+
+    op.create_table(
+        "courses",
+        sa.Column("id", sa.BigInteger(), autoincrement=True, nullable=False),
+        sa.Column("title", sa.String(length=300), nullable=False),
+        sa.Column("description", sa.Text(), nullable=False),
+        sa.Column("audience", _enum(), nullable=False),
+        sa.Column("delivery", _enum(), nullable=False),
+        sa.Column("schedule", sa.String(length=300), nullable=False),
+        sa.Column("price", sa.String(length=120), nullable=False),
+        sa.Column("location", sa.String(length=300), nullable=False),
+        sa.Column("position", sa.Integer(), nullable=False),
+        sa.Column("status", _enum(), nullable=False),
         sa.Column("created_by", sa.BigInteger(), nullable=True),
-        sa.Column("revoked_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
-            nullable=False,
+        *_timestamps(),
+        sa.ForeignKeyConstraint(
+            ["created_by"], ["users.id"], name=op.f("fk_courses_created_by_users"),
+            ondelete="SET NULL",
         ),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_courses")),
+    )
+    op.create_index("ix_courses_status_position", "courses", ["status", "position"])
+
+    op.create_table(
+        "lessons",
+        sa.Column("id", sa.BigInteger(), autoincrement=True, nullable=False),
+        sa.Column("title", sa.String(length=300), nullable=False),
+        sa.Column("body", sa.Text(), nullable=False),
+        sa.Column("audience", _enum(), nullable=False),
+        sa.Column("media_type", _enum(16), nullable=True),
+        sa.Column("media_file_id", sa.String(length=255), nullable=True),
+        sa.Column("position", sa.Integer(), nullable=False),
+        sa.Column("status", _enum(), nullable=False),
+        sa.Column("created_by", sa.BigInteger(), nullable=True),
+        *_timestamps(),
+        sa.ForeignKeyConstraint(
+            ["created_by"], ["users.id"], name=op.f("fk_lessons_created_by_users"),
+            ondelete="SET NULL",
+        ),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_lessons")),
+    )
+    op.create_index("ix_lessons_status_position", "lessons", ["status", "position"])
+
+    op.create_table(
+        "lesson_questions",
+        sa.Column("id", sa.BigInteger(), autoincrement=True, nullable=False),
+        sa.Column("lesson_id", sa.BigInteger(), nullable=False),
+        sa.Column("question", sa.String(length=500), nullable=False),
+        sa.Column("options", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+        sa.Column("correct_option", sa.Integer(), nullable=False),
+        sa.Column("position", sa.Integer(), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["lesson_id"], ["lessons.id"], name=op.f("fk_lesson_questions_lesson_id_lessons"),
+            ondelete="CASCADE",
+        ),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_lesson_questions")),
+    )
+    op.create_index(
+        "ix_lesson_questions_lesson_id", "lesson_questions", ["lesson_id", "position"]
+    )
+
+    op.create_table(
+        "lesson_progress",
+        sa.Column("id", sa.BigInteger(), autoincrement=True, nullable=False),
+        sa.Column("user_id", sa.BigInteger(), nullable=False),
+        sa.Column("lesson_id", sa.BigInteger(), nullable=False),
+        sa.Column("quiz_score", sa.Integer(), nullable=True),
+        sa.Column("quiz_total", sa.Integer(), nullable=True),
         sa.Column(
-            "updated_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
+            "completed_at", sa.DateTime(timezone=True), server_default=sa.func.now(),
             nullable=False,
         ),
         sa.ForeignKeyConstraint(
-            ["created_by"],
-            ["users.id"],
-            name="fk_users_created_by_users",
+            ["user_id"], ["users.id"], name=op.f("fk_lesson_progress_user_id_users"),
+            ondelete="CASCADE",
+        ),
+        sa.ForeignKeyConstraint(
+            ["lesson_id"], ["lessons.id"], name=op.f("fk_lesson_progress_lesson_id_lessons"),
+            ondelete="CASCADE",
+        ),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_lesson_progress")),
+        sa.UniqueConstraint("user_id", "lesson_id", name=op.f("uq_lesson_progress_user_id_lesson_id")),
+    )
+    op.create_index("ix_lesson_progress_lesson_id", "lesson_progress", ["lesson_id"])
+
+    op.create_table(
+        "faq_entries",
+        sa.Column("id", sa.BigInteger(), autoincrement=True, nullable=False),
+        sa.Column("question", sa.String(length=300), nullable=False),
+        sa.Column("answer", sa.Text(), nullable=False),
+        sa.Column("position", sa.Integer(), nullable=False),
+        sa.Column("is_published", sa.Boolean(), nullable=False),
+        *_timestamps(),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_faq_entries")),
+    )
+
+    op.create_table(
+        "bot_texts",
+        sa.Column("key", sa.String(length=32), nullable=False),
+        sa.Column("value", sa.Text(), nullable=False),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
+        sa.PrimaryKeyConstraint("key", name=op.f("pk_bot_texts")),
+    )
+
+    op.create_table(
+        "applications",
+        sa.Column("id", sa.BigInteger(), autoincrement=True, nullable=False),
+        sa.Column("number", sa.String(length=32), nullable=False),
+        sa.Column("type", _enum(), nullable=False),
+        sa.Column("status", _enum(), nullable=False),
+        sa.Column("client_id", sa.BigInteger(), nullable=False),
+        sa.Column("course_id", sa.BigInteger(), nullable=True),
+        sa.Column("course_title", sa.String(length=300), nullable=True),
+        sa.Column("topic", _enum(), nullable=True),
+        sa.Column("description", sa.Text(), nullable=False),
+        sa.Column("preferred_time", sa.String(length=300), nullable=True),
+        sa.Column("contact_method", _enum(), nullable=False),
+        sa.Column("assignee_id", sa.BigInteger(), nullable=True),
+        sa.Column("rejection_reason", sa.Text(), nullable=True),
+        sa.Column("closed_at", sa.DateTime(timezone=True), nullable=True),
+        *_timestamps(),
+        sa.ForeignKeyConstraint(
+            ["client_id"], ["users.id"], name=op.f("fk_applications_client_id_users"),
+            ondelete="RESTRICT",
+        ),
+        sa.ForeignKeyConstraint(
+            ["course_id"], ["courses.id"], name=op.f("fk_applications_course_id_courses"),
             ondelete="SET NULL",
         ),
-        sa.PrimaryKeyConstraint("id", name="pk_users"),
+        sa.ForeignKeyConstraint(
+            ["assignee_id"], ["users.id"], name=op.f("fk_applications_assignee_id_users"),
+            ondelete="SET NULL",
+        ),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_applications")),
+        sa.UniqueConstraint("number", name=op.f("uq_applications_number")),
     )
-    # `unique=True` + `index=True` on the model produces a single UNIQUE INDEX.
-    op.create_index("ix_users_telegram_id", "users", ["telegram_id"], unique=True)
-    op.create_index("ix_users_role_is_active", "users", ["role", "is_active"])
-    op.create_index("ix_users_created_by", "users", ["created_by"])
+    op.create_index(
+        "ix_applications_status_created", "applications", ["status", "created_at"]
+    )
+    op.create_index("ix_applications_client_id", "applications", ["client_id", "created_at"])
+    op.create_index("ix_applications_course_id", "applications", ["course_id"])
 
-    # --- number counters --------------------------------------------------
+    op.create_table(
+        "application_messages",
+        sa.Column("id", sa.BigInteger(), autoincrement=True, nullable=False),
+        sa.Column("application_id", sa.BigInteger(), nullable=False),
+        sa.Column("author_id", sa.BigInteger(), nullable=True),
+        sa.Column("from_staff", sa.Boolean(), nullable=False),
+        sa.Column("text", sa.Text(), nullable=False),
+        sa.Column("media_type", _enum(16), nullable=True),
+        sa.Column("media_file_id", sa.String(length=255), nullable=True),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
+        sa.ForeignKeyConstraint(
+            ["application_id"], ["applications.id"],
+            name=op.f("fk_application_messages_application_id_applications"),
+            ondelete="CASCADE",
+        ),
+        sa.ForeignKeyConstraint(
+            ["author_id"], ["users.id"], name=op.f("fk_application_messages_author_id_users"),
+            ondelete="SET NULL",
+        ),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_application_messages")),
+    )
+    op.create_index(
+        "ix_application_messages_application_id",
+        "application_messages",
+        ["application_id", "created_at"],
+    )
+
     op.create_table(
         "number_counters",
         sa.Column("scope", sa.String(length=32), nullable=False),
         sa.Column("year", sa.Integer(), nullable=False),
         sa.Column("current_value", sa.BigInteger(), nullable=False),
-        sa.PrimaryKeyConstraint("scope", "year", name="pk_number_counters"),
+        sa.PrimaryKeyConstraint("scope", "year", name=op.f("pk_number_counters")),
     )
 
-    # --- invites ----------------------------------------------------------
-    op.create_table(
-        "invites",
-        sa.Column("id", sa.BigInteger(), autoincrement=True, nullable=False),
-        sa.Column("code", sa.String(length=64), nullable=False),
-        sa.Column("full_name", sa.String(length=255), nullable=False),
-        sa.Column("role", USER_ROLE, nullable=False),
-        sa.Column("created_by", sa.BigInteger(), nullable=False),
-        sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("used_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("used_by_user_id", sa.BigInteger(), nullable=True),
-        sa.Column("revoked_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
-            nullable=False,
-        ),
-        sa.Column(
-            "updated_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
-            nullable=False,
-        ),
-        sa.ForeignKeyConstraint(
-            ["created_by"], ["users.id"], name="fk_invites_created_by_users", ondelete="RESTRICT"
-        ),
-        sa.ForeignKeyConstraint(
-            ["used_by_user_id"],
-            ["users.id"],
-            name="fk_invites_used_by_user_id_users",
-            ondelete="SET NULL",
-        ),
-        sa.PrimaryKeyConstraint("id", name="pk_invites"),
-    )
-    op.create_index("ix_invites_code", "invites", ["code"], unique=True)
-    op.create_index("ix_invites_created_by", "invites", ["created_by"])
-    op.create_index("ix_invites_expires_at", "invites", ["expires_at"])
-
-    # --- procurements -----------------------------------------------------
-    op.create_table(
-        "procurements",
-        sa.Column("id", sa.BigInteger(), autoincrement=True, nullable=False),
-        sa.Column("procurement_number", sa.String(length=32), nullable=False),
-        sa.Column("title", sa.String(length=300), nullable=False),
-        sa.Column("description", sa.Text(), nullable=True),
-        sa.Column("status", PROCUREMENT_STATUS, nullable=False),
-        sa.Column("deadline", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("participant_mode", PARTICIPANT_MODE, nullable=False),
-        sa.Column("created_by", sa.BigInteger(), nullable=False),
-        sa.Column("published_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("closed_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
-            nullable=False,
-        ),
-        sa.Column(
-            "updated_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
-            nullable=False,
-        ),
-        sa.ForeignKeyConstraint(
-            ["created_by"],
-            ["users.id"],
-            name="fk_procurements_created_by_users",
-            ondelete="RESTRICT",
-        ),
-        sa.PrimaryKeyConstraint("id", name="pk_procurements"),
-        sa.UniqueConstraint(
-            "procurement_number", name="uq_procurements_procurement_number"
-        ),
-    )
-    op.create_index("ix_procurements_status", "procurements", ["status"])
-    op.create_index("ix_procurements_deadline", "procurements", ["deadline"])
-    op.create_index("ix_procurements_created_by", "procurements", ["created_by"])
-    op.create_index(
-        "ix_procurements_status_deadline", "procurements", ["status", "deadline"]
-    )
-
-    # --- participants -----------------------------------------------------
-    op.create_table(
-        "procurement_participants",
-        sa.Column("id", sa.BigInteger(), autoincrement=True, nullable=False),
-        sa.Column("procurement_id", sa.BigInteger(), nullable=False),
-        sa.Column("user_id", sa.BigInteger(), nullable=False),
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
-            nullable=False,
-        ),
-        sa.ForeignKeyConstraint(
-            ["procurement_id"],
-            ["procurements.id"],
-            name="fk_procurement_participants_procurement_id_procurements",
-            ondelete="CASCADE",
-        ),
-        sa.ForeignKeyConstraint(
-            ["user_id"],
-            ["users.id"],
-            name="fk_procurement_participants_user_id_users",
-            ondelete="CASCADE",
-        ),
-        sa.PrimaryKeyConstraint("id", name="pk_procurement_participants"),
-        sa.UniqueConstraint(
-            "procurement_id", "user_id", name="uq_procurement_participants_pair"
-        ),
-    )
-    op.create_index(
-        "ix_procurement_participants_procurement_id",
-        "procurement_participants",
-        ["procurement_id"],
-    )
-    op.create_index(
-        "ix_procurement_participants_user_id", "procurement_participants", ["user_id"]
-    )
-
-    # --- purchase requests ------------------------------------------------
-    op.create_table(
-        "purchase_requests",
-        sa.Column("id", sa.BigInteger(), autoincrement=True, nullable=False),
-        sa.Column("request_number", sa.String(length=32), nullable=True),
-        sa.Column("procurement_id", sa.BigInteger(), nullable=False),
-        sa.Column("purchaser_id", sa.BigInteger(), nullable=False),
-        sa.Column("status", REQUEST_STATUS, nullable=False),
-        sa.Column("comment", sa.Text(), nullable=True),
-        sa.Column("rejection_reason", sa.Text(), nullable=True),
-        sa.Column("submitted_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
-            nullable=False,
-        ),
-        sa.Column(
-            "updated_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
-            nullable=False,
-        ),
-        sa.ForeignKeyConstraint(
-            ["procurement_id"],
-            ["procurements.id"],
-            name="fk_purchase_requests_procurement_id_procurements",
-            ondelete="CASCADE",
-        ),
-        sa.ForeignKeyConstraint(
-            ["purchaser_id"],
-            ["users.id"],
-            name="fk_purchase_requests_purchaser_id_users",
-            ondelete="RESTRICT",
-        ),
-        sa.PrimaryKeyConstraint("id", name="pk_purchase_requests"),
-        sa.UniqueConstraint("request_number", name="uq_purchase_requests_request_number"),
-        sa.UniqueConstraint(
-            "procurement_id", "purchaser_id", name="uq_purchase_requests_pair"
-        ),
-    )
-    op.create_index("ix_purchase_requests_status", "purchase_requests", ["status"])
-    op.create_index(
-        "ix_purchase_requests_procurement_id", "purchase_requests", ["procurement_id"]
-    )
-    op.create_index(
-        "ix_purchase_requests_purchaser_id", "purchase_requests", ["purchaser_id"]
-    )
-    op.create_index(
-        "ix_purchase_requests_submitted_at", "purchase_requests", ["submitted_at"]
-    )
-    op.create_index(
-        "ix_purchase_requests_procurement_status",
-        "purchase_requests",
-        ["procurement_id", "status"],
-    )
-
-    # --- purchase request items -------------------------------------------
-    op.create_table(
-        "purchase_request_items",
-        sa.Column("id", sa.BigInteger(), autoincrement=True, nullable=False),
-        sa.Column("purchase_request_id", sa.BigInteger(), nullable=False),
-        sa.Column("position", sa.Integer(), nullable=False),
-        sa.Column("name", sa.String(length=300), nullable=False),
-        sa.Column("normalized_name", sa.String(length=300), nullable=False),
-        sa.Column("quantity", sa.Numeric(precision=18, scale=3), nullable=False),
-        sa.Column("unit", sa.String(length=32), nullable=False),
-        sa.Column("comment", sa.Text(), nullable=True),
-        sa.Column("source_text", sa.Text(), nullable=True),
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
-            nullable=False,
-        ),
-        sa.ForeignKeyConstraint(
-            ["purchase_request_id"],
-            ["purchase_requests.id"],
-            name="fk_purchase_request_items_purchase_request_id_purchase_requests",
-            ondelete="CASCADE",
-        ),
-        sa.PrimaryKeyConstraint("id", name="pk_purchase_request_items"),
-        sa.UniqueConstraint(
-            "purchase_request_id", "position", name="uq_purchase_request_items_position"
-        ),
-    )
-    op.create_index(
-        "ix_purchase_request_items_purchase_request_id",
-        "purchase_request_items",
-        ["purchase_request_id"],
-    )
-    op.create_index(
-        "ix_purchase_request_items_normalized_name_unit",
-        "purchase_request_items",
-        ["normalized_name", "unit"],
-    )
-
-    # --- status history ---------------------------------------------------
-    op.create_table(
-        "status_history",
-        sa.Column("id", sa.BigInteger(), autoincrement=True, nullable=False),
-        sa.Column("purchase_request_id", sa.BigInteger(), nullable=False),
-        sa.Column("old_status", REQUEST_STATUS, nullable=True),
-        sa.Column("new_status", REQUEST_STATUS, nullable=False),
-        sa.Column("changed_by", sa.BigInteger(), nullable=True),
-        sa.Column("comment", sa.Text(), nullable=True),
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
-            nullable=False,
-        ),
-        sa.ForeignKeyConstraint(
-            ["purchase_request_id"],
-            ["purchase_requests.id"],
-            name="fk_status_history_purchase_request_id_purchase_requests",
-            ondelete="CASCADE",
-        ),
-        sa.ForeignKeyConstraint(
-            ["changed_by"],
-            ["users.id"],
-            name="fk_status_history_changed_by_users",
-            ondelete="SET NULL",
-        ),
-        sa.PrimaryKeyConstraint("id", name="pk_status_history"),
-    )
-    op.create_index(
-        "ix_status_history_purchase_request_id", "status_history", ["purchase_request_id"]
-    )
-    op.create_index("ix_status_history_created_at", "status_history", ["created_at"])
-
-    # --- audit log --------------------------------------------------------
     op.create_table(
         "audit_logs",
         sa.Column("id", sa.BigInteger(), autoincrement=True, nullable=False),
@@ -366,24 +241,15 @@ def upgrade() -> None:
         sa.Column("action", sa.String(length=64), nullable=False),
         sa.Column("entity_type", sa.String(length=64), nullable=False),
         sa.Column("entity_id", sa.BigInteger(), nullable=True),
+        sa.Column("payload", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
         sa.Column(
-            "payload",
-            postgresql.JSONB(astext_type=sa.Text()),
-            nullable=False,
-        ),
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
-            nullable=False,
+            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
         ),
         sa.ForeignKeyConstraint(
-            ["actor_user_id"],
-            ["users.id"],
-            name="fk_audit_logs_actor_user_id_users",
+            ["actor_user_id"], ["users.id"], name=op.f("fk_audit_logs_actor_user_id_users"),
             ondelete="SET NULL",
         ),
-        sa.PrimaryKeyConstraint("id", name="pk_audit_logs"),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_audit_logs")),
     )
     op.create_index("ix_audit_logs_actor_user_id", "audit_logs", ["actor_user_id"])
     op.create_index("ix_audit_logs_entity", "audit_logs", ["entity_type", "entity_id"])
@@ -392,12 +258,17 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_table("audit_logs")
-    op.drop_table("status_history")
-    op.drop_table("purchase_request_items")
-    op.drop_table("purchase_requests")
-    op.drop_table("procurement_participants")
-    op.drop_table("procurements")
-    op.drop_table("invites")
-    op.drop_table("number_counters")
-    op.drop_table("users")
+    for table in (
+        "audit_logs",
+        "number_counters",
+        "application_messages",
+        "applications",
+        "bot_texts",
+        "faq_entries",
+        "lesson_progress",
+        "lesson_questions",
+        "lessons",
+        "courses",
+        "users",
+    ):
+        op.drop_table(table)

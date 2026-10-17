@@ -24,5 +24,4 @@ class NumberCounter(Base):
 
 
 class NumberScope:
-    PROCUREMENT = "procurement"
-    PURCHASE_REQUEST = "purchase_request"
+    APPLICATION = "application"

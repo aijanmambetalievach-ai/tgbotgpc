@@ -9,12 +9,10 @@ from __future__ import annotations
 import html
 import re
 import unicodedata
-from decimal import Decimal, InvalidOperation
 
 _CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 _MULTI_SPACE = re.compile(r"[^\S\n]+")
 _MULTI_NEWLINE = re.compile(r"\n{3,}")
-_EDGE_PUNCT = re.compile(r"^[\s\-–—:;,.•*_]+|[\s\-–—:;,.•*_]+$")
 _UNSAFE_FILENAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
 #: Characters Excel/LibreOffice may interpret as the start of a formula.
@@ -44,30 +42,6 @@ def sanitize_text(value: str | None, max_length: int) -> str:
     return cleaned
 
 
-def strip_edge_punctuation(value: str) -> str:
-    return _EDGE_PUNCT.sub("", value)
-
-
-def normalize_item_name(name: str) -> str:
-    """Key used to decide whether two item names are *the same* item.
-
-    Deliberately conservative: it only folds case, ``ё``/``е`` and whitespace.
-    It never stems, never drops adjectives — "Масло" and "Масло подсолнечное"
-    stay different, because merging them would silently corrupt quantities.
-    """
-    value = normalize_unicode(name).lower().replace("ё", "е")
-    value = strip_edge_punctuation(value)
-    return _MULTI_SPACE.sub(" ", value).strip()
-
-
-def humanize_name(name: str) -> str:
-    """Capitalise the first letter for display without touching the rest."""
-    cleaned = strip_edge_punctuation(collapse_whitespace(name))
-    if not cleaned:
-        return cleaned
-    return cleaned[0].upper() + cleaned[1:]
-
-
 def sanitize_filename(value: str, max_length: int = 120, fallback: str = "file") -> str:
     """Produce a safe, Unicode-friendly file name.
 
@@ -82,7 +56,10 @@ def sanitize_filename(value: str, max_length: int = 120, fallback: str = "file")
     if len(cleaned) > max_length:
         cleaned = cleaned[:max_length].rstrip("_ ")
     reserved = {
-        "con", "prn", "aux", "nul",
+        "con",
+        "prn",
+        "aux",
+        "nul",
         *(f"com{i}" for i in range(1, 10)),
         *(f"lpt{i}" for i in range(1, 10)),
     }
@@ -106,18 +83,6 @@ def sanitize_excel_cell(value: object) -> object:
     return value
 
 
-def format_quantity(value: Decimal) -> str:
-    """``Decimal('50.000')`` -> ``50``; ``Decimal('5.50')`` -> ``5.5``."""
-    quantized = value.normalize()
-    if quantized == quantized.to_integral_value():
-        try:
-            quantized = quantized.quantize(Decimal(1))
-        except InvalidOperation:  # pragma: no cover - astronomically large numbers
-            return str(value)
-    text = format(quantized, "f")
-    return text
-
-
 def escape_html(value: str) -> str:
     """Escape text before embedding it into an HTML-parse-mode message."""
     return html.escape(value, quote=False)
@@ -127,3 +92,38 @@ def truncate(value: str, max_length: int, suffix: str = "…") -> str:
     if len(value) <= max_length:
         return value
     return value[: max(0, max_length - len(suffix))].rstrip() + suffix
+
+
+_PHONE_DIGITS = re.compile(r"\D+")
+#: Kyrgyz national numbers: 9 digits after the 996 country code.
+KG_COUNTRY_CODE = "996"
+KG_NATIONAL_LENGTH = 9
+MIN_PHONE_DIGITS = 9
+MAX_PHONE_DIGITS = 15
+
+
+def normalize_phone(raw: str | None) -> str | None:
+    """Normalise a phone number to ``+<digits>``; ``None`` when it is not one.
+
+    Local Kyrgyz formats (``0555 12 34 56``, ``555123456``) get the ``+996``
+    country code; any other international number is kept as typed.
+    """
+    if not raw:
+        return None
+    digits = _PHONE_DIGITS.sub("", raw)
+    if len(digits) == KG_NATIONAL_LENGTH + 1 and digits.startswith("0"):
+        digits = KG_COUNTRY_CODE + digits[1:]
+    elif len(digits) == KG_NATIONAL_LENGTH:
+        digits = KG_COUNTRY_CODE + digits
+    if not MIN_PHONE_DIGITS <= len(digits) <= MAX_PHONE_DIGITS:
+        return None
+    return f"+{digits}"
+
+
+_HTML_TAG = re.compile(r"<[^>]+>")
+
+
+def html_to_plain(value: str) -> str:
+    """Strip Telegram HTML down to plain text (for previews that get truncated —
+    cutting HTML in the middle could leave an unclosed tag)."""
+    return html.unescape(_HTML_TAG.sub("", value))

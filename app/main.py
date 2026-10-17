@@ -41,7 +41,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     """FastAPI factory (also used by tests and `uvicorn app.main:create_app`)."""
     settings = settings or get_settings()
     app = FastAPI(
-        title="Tender Bot API",
+        title="Tender Training Bot API",
         version=__version__,
         docs_url="/docs" if settings.app_env != "prod" else None,
         redoc_url=None,
@@ -52,15 +52,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
 
 async def _bootstrap(settings: Settings) -> None:
-    """Seed the configured tender employees before serving traffic."""
+    """Seed the configured administrators before serving traffic."""
     if not settings.bootstrap_admin_ids:
         logger.warning(
-            "BOOTSTRAP_ADMIN_TELEGRAM_IDS is empty — no tender employee will be seeded",
+            "BOOTSTRAP_ADMIN_TELEGRAM_IDS is empty — no administrator will be seeded",
             extra={"operation": "bootstrap", "result": "skipped"},
         )
         return
     async with session_scope() as session:
-        created = await AuthService(session, settings).bootstrap_employees()
+        created = await AuthService(session, settings).bootstrap_admins()
     logger.info(
         "bootstrap finished",
         extra={"operation": "bootstrap", "result": f"created={len(created)}"},
@@ -87,7 +87,7 @@ async def run() -> None:
     settings = get_settings()
     setup_logging(settings.log_level, settings.log_format)
     logger.info(
-        "starting tender bot",
+        "starting training bot",
         extra={"operation": "startup", "result": settings.app_env},
     )
 
@@ -106,9 +106,7 @@ async def run() -> None:
     waiter = asyncio.create_task(stop.wait())
 
     try:
-        done, _pending = await asyncio.wait(
-            [*tasks, waiter], return_when=asyncio.FIRST_COMPLETED
-        )
+        done, _pending = await asyncio.wait([*tasks, waiter], return_when=asyncio.FIRST_COMPLETED)
         for task in done:
             if task is not waiter and task.exception() is not None:
                 raise task.exception()  # type: ignore[misc]

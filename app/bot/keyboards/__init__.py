@@ -1,5 +1,5 @@
 """Keyboard builders."""
 
-from app.bot.keyboards import common, purchaser, tender_employee
+from app.bot.keyboards import admin, client, common
 
-__all__ = ["common", "purchaser", "tender_employee"]
+__all__ = ["admin", "client", "common"]

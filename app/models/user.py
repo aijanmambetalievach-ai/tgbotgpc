@@ -2,26 +2,21 @@
 
 from __future__ import annotations
 
-import datetime as dt
-from typing import TYPE_CHECKING
-
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, String
+from sqlalchemy import BigInteger, Boolean, Index, String
 from sqlalchemy import Enum as SAEnum
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database.base import Base, IntPKMixin, TimestampMixin
-from app.models.enums import UserRole
-
-if TYPE_CHECKING:
-    from app.models.purchase_request import PurchaseRequest
+from app.models.enums import ClientCategory, UserRole
 
 
 class User(IntPKMixin, TimestampMixin, Base):
-    """A person allowed to use the bot.
+    """Anyone who has opened the bot.
 
-    The Telegram numeric user id is the stable identity. ``telegram_username``
-    is stored for display only — usernames can be changed or released at any
-    time and must never be used for authorization.
+    The bot is public: every new Telegram account is registered as a
+    ``CLIENT`` on first contact. The Telegram numeric user id is the stable
+    identity; ``telegram_username`` is cached for display only and must never
+    be used for authorization.
     """
 
     __tablename__ = "users"
@@ -29,40 +24,36 @@ class User(IntPKMixin, TimestampMixin, Base):
     telegram_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False, index=True)
     telegram_username: Mapped[str | None] = mapped_column(String(64), nullable=True)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    organization: Mapped[str | None] = mapped_column(String(255), nullable=True)
     role: Mapped[UserRole] = mapped_column(
         SAEnum(UserRole, native_enum=False, length=32, name="user_role"),
         nullable=False,
-        default=UserRole.PURCHASER,
+        default=UserRole.CLIENT,
+    )
+    category: Mapped[ClientCategory | None] = mapped_column(
+        SAEnum(ClientCategory, native_enum=False, length=32, name="client_category"),
+        nullable=True,
     )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    created_by: Mapped[int | None] = mapped_column(
-        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
-    )
-    revoked_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-
-    purchase_requests: Mapped[list[PurchaseRequest]] = relationship(
-        back_populates="purchaser",
-        foreign_keys="PurchaseRequest.purchaser_id",
-        lazy="raise",
-    )
 
     __table_args__ = (
         Index("ix_users_role_is_active", "role", "is_active"),
-        Index("ix_users_created_by", "created_by"),
+        Index("ix_users_category", "category"),
     )
 
     # --- Convenience -------------------------------------------------------
     @property
-    def is_revoked(self) -> bool:
-        return self.revoked_at is not None
-
-    @property
     def can_use_bot(self) -> bool:
-        return self.is_active and self.revoked_at is None
+        return self.is_active
 
     @property
-    def is_employee(self) -> bool:
-        return self.role in (UserRole.TENDER_EMPLOYEE, UserRole.ADMIN)
+    def is_admin(self) -> bool:
+        return self.role is UserRole.ADMIN
+
+    @property
+    def has_contact_details(self) -> bool:
+        return bool(self.full_name.strip()) and bool(self.phone)
 
     @property
     def display_name(self) -> str:
