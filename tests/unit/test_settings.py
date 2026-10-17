@@ -20,6 +20,16 @@ from app.database.session import connect_args_for
             "postgresql+asyncpg://u:p@ep-x.eu-central-1.aws.neon.tech/neondb?ssl=require",
         ),
         ("postgres://u:p@host:5432/db", "postgresql+asyncpg://u:p@host:5432/db"),
+        # What Neon's "copy snippet" variants and .env lines look like.
+        (
+            "psql 'postgresql://u:p@ep-x-pooler.aws.neon.tech/db?sslmode=require'",
+            "postgresql+asyncpg://u:p@ep-x-pooler.aws.neon.tech/db?ssl=require",
+        ),
+        (
+            'DATABASE_URL="postgresql://u:p@host/db?sslmode=require&channel_binding=require"\n',
+            "postgresql+asyncpg://u:p@host/db?ssl=require",
+        ),
+        ("  postgresql://u:p@host/db  \n", "postgresql+asyncpg://u:p@host/db"),
         (
             "postgresql+asyncpg://tender:tender@localhost:5432/tender",
             "postgresql+asyncpg://tender:tender@localhost:5432/tender",
@@ -62,3 +72,8 @@ def test_webhook_token_is_always_valid_for_telegram() -> None:
     for settings in (base, generated):
         assert re.fullmatch(r"[A-Za-z0-9_-]{1,256}", settings.webhook_token)
     assert base.webhook_token != generated.webhook_token
+
+
+def test_something_else_pasted_as_database_url_is_explained() -> None:
+    with pytest.raises(ValueError, match="not a database address"):
+        Settings(_env_file=None, DATABASE_URL="1234567890:AAHtoken")  # type: ignore[call-arg]
