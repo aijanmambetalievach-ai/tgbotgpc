@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.pool import NullPool
 
 from app.config.settings import Settings, get_settings
 
@@ -21,6 +22,10 @@ _session_factory: async_sessionmaker[AsyncSession] | None = None
 def create_engine_from_settings(settings: Settings | None = None) -> AsyncEngine:
     """Build a fresh engine (used by the app, tests and Alembic)."""
     settings = settings or get_settings()
+    if settings.db_pool_size == 0:
+        return create_async_engine(
+            settings.database_url, echo=settings.db_echo, poolclass=NullPool, future=True
+        )
     return create_async_engine(
         settings.database_url,
         echo=settings.db_echo,

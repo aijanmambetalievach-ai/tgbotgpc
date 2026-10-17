@@ -7,11 +7,13 @@ the codebase. Values are read from environment variables (and from a local
 
 from __future__ import annotations
 
+import hashlib
 from functools import lru_cache
 from typing import Literal
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -37,7 +39,10 @@ class Settings(BaseSettings):
         alias="DATABASE_URL",
     )
     test_database_url: str | None = Field(default=None, alias="TEST_DATABASE_URL")
-    db_pool_size: int = Field(default=10, ge=1, le=100, alias="DB_POOL_SIZE")
+    #: ``0`` disables pooling: every update opens its own connection. Use it on
+    #: serverless Postgres (Neon), where idle pooled connections could keep the
+    #: database awake and burn the free compute hours.
+    db_pool_size: int = Field(default=10, ge=0, le=100, alias="DB_POOL_SIZE")
     db_max_overflow: int = Field(default=10, ge=0, le=100, alias="DB_MAX_OVERFLOW")
     db_echo: bool = Field(default=False, alias="DB_ECHO")
 
@@ -54,8 +59,24 @@ class Settings(BaseSettings):
 
     # --- HTTP API ---------------------------------------------------------
     api_host: str = Field(default="0.0.0.0", alias="API_HOST")
-    api_port: int = Field(default=8000, ge=1, le=65535, alias="API_PORT")
+    #: Hosting platforms such as Render pass the port to listen on as ``PORT``.
+    api_port: int = Field(
+        default=8000, ge=1, le=65535, validation_alias=AliasChoices("API_PORT", "PORT")
+    )
     api_enabled: bool = Field(default=True, alias="API_ENABLED")
+
+    # --- Webhook mode -----------------------------------------------------
+    #: Public HTTPS address of this app. When set, Telegram pushes updates to
+    #: ``<base>/telegram/webhook`` instead of the bot polling for them — this
+    #: is what lets a free instance that sleeps when idle wake up on a message.
+    #: Render provides ``RENDER_EXTERNAL_URL`` automatically.
+    webhook_base_url: str = Field(
+        default="", validation_alias=AliasChoices("WEBHOOK_BASE_URL", "RENDER_EXTERNAL_URL")
+    )
+    #: Checked against Telegram's ``X-Telegram-Bot-Api-Secret-Token`` header so
+    #: nobody else can post fake updates. Letters, digits, ``_`` and ``-`` only.
+    #: Optional: any string. Defaults to a value derived from the bot token.
+    webhook_secret: SecretStr = Field(default=SecretStr(""), alias="WEBHOOK_SECRET")
 
     # --- Limits -----------------------------------------------------------
     max_message_length: int = Field(default=4000, ge=100, le=4096, alias="MAX_MESSAGE_LENGTH")
@@ -70,6 +91,11 @@ class Settings(BaseSettings):
     rate_limit_messages: int = Field(default=20, ge=1, alias="RATE_LIMIT_MESSAGES")
     rate_limit_window_seconds: int = Field(default=10, ge=1, alias="RATE_LIMIT_WINDOW_SECONDS")
 
+    @field_validator("database_url", "test_database_url")
+    @classmethod
+    def _normalize_database_url(cls, value: str | None) -> str | None:
+        return normalize_database_url(value) if value else value
+
     @field_validator("app_timezone")
     @classmethod
     def _validate_timezone(cls, value: str) -> str:
@@ -80,6 +106,24 @@ class Settings(BaseSettings):
         return value
 
     # --- Derived helpers --------------------------------------------------
+    @property
+    def use_webhook(self) -> bool:
+        return bool(self.webhook_base_url.strip())
+
+    @property
+    def webhook_token(self) -> str:
+        """The ``secret_token`` Telegram echoes back with every webhook call.
+
+        Hashed, because Telegram allows only ``A-Z a-z 0-9 _ -`` there while
+        hosting panels generate secrets with any characters.
+        """
+        seed = self.webhook_secret.get_secret_value() or self.bot_token.get_secret_value()
+        return hashlib.sha256(f"webhook:{seed}".encode()).hexdigest()
+
+    @property
+    def webhook_url(self) -> str:
+        return self.webhook_base_url.strip().rstrip("/") + WEBHOOK_PATH
+
     @property
     def timezone(self) -> ZoneInfo:
         return ZoneInfo(self.app_timezone)
@@ -104,6 +148,33 @@ class Settings(BaseSettings):
         return self.database_url.replace("+asyncpg", "+psycopg2").replace(
             "postgresql+psycopg2", "postgresql"
         )
+
+
+WEBHOOK_PATH = "/telegram/webhook"
+
+#: libpq query options that asyncpg does not understand.
+_LIBPQ_ONLY_OPTIONS = {"channel_binding", "gssencmode", "target_session_attrs"}
+
+
+def normalize_database_url(url: str) -> str:
+    """Accept the connection string exactly as a hosting panel shows it.
+
+    Neon, Render and others hand out ``postgres://…?sslmode=require&…`` URLs
+    meant for libpq. SQLAlchemy needs the ``postgresql+asyncpg`` driver and
+    asyncpg spells the TLS option ``ssl`` — translate both.
+    """
+    parts = urlsplit(url.strip())
+    scheme = parts.scheme
+    if scheme in ("postgres", "postgresql"):
+        scheme = "postgresql+asyncpg"
+    if scheme != "postgresql+asyncpg":
+        return url.strip()
+    query = []
+    for key, value in parse_qsl(parts.query, keep_blank_values=True):
+        if key in _LIBPQ_ONLY_OPTIONS:
+            continue
+        query.append(("ssl" if key == "sslmode" else key, value))
+    return urlunsplit((scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
 
 
 @lru_cache(maxsize=1)

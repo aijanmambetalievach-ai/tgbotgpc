@@ -1,0 +1,39 @@
+# Render Blueprint — free deployment (no credit card).
+#
+#   1. Create a free Postgres on https://neon.tech and copy its connection
+#      string (the direct one, without "-pooler" in the host name).
+#   2. On https://render.com: New → Blueprint → pick this repository.
+#   3. Fill in the three secrets Render asks for and press "Apply".
+#
+# The bot runs in webhook mode: Render gives the service a public HTTPS
+# address (RENDER_EXTERNAL_URL) and Telegram wakes the free instance with
+# every message. Full walkthrough: docs/DEPLOY_FREE.md.
+services:
+  - type: web
+    name: tender-training-bot
+    runtime: docker
+    plan: free
+    region: frankfurt
+    branch: main
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: BOOTSTRAP_ADMIN_TELEGRAM_IDS
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: WEBHOOK_SECRET
+        generateValue: true
+      - key: BRAND_NAME
+        value: Тендер Академия
+      - key: APP_ENV
+        value: prod
+      - key: LOG_FORMAT
+        value: json
+      # Serverless Postgres: no idle pooled connections (see settings.py).
+      - key: DB_POOL_SIZE
+        value: "0"
+      - key: RUN_MIGRATIONS
+        value: "true"

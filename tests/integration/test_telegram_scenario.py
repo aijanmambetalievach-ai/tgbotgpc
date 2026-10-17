@@ -7,6 +7,7 @@ exactly what the bot would have sent — and to whom.
 
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 import itertools
 from collections.abc import AsyncGenerator
@@ -37,12 +38,16 @@ from aiogram.types import (
     Update,
 )
 from aiogram.types import User as TgUser
+from httpx import ASGITransport, AsyncClient
+from pydantic import SecretStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from app.bot import texts
 from app.bot.middlewares.throttling import ThrottlingMiddleware
+from app.config.settings import WEBHOOK_PATH, Settings
 from app.database.session import dispose_engine, init_engine
+from app.main import create_app
 from app.models.application import Application
 from app.models.enums import ApplicationStatus, ApplicationType, ClientCategory, UserRole
 from app.models.user import User
@@ -393,3 +398,44 @@ async def test_purchaser_is_offered_no_tender_support(
     await scenario.message(CLIENT_ID, texts.BTN_SUPPORT)
     assert any("для <b>поставщиков</b>" in text for text in scenario.api.texts_to(CLIENT_ID))
     assert (await session.execute(select(Application))).first() is None
+
+
+async def test_webhook_endpoint_checks_the_secret_and_processes_updates(
+    scenario: Scenario, session: AsyncSession, settings: Settings
+) -> None:
+    configured = settings.model_copy(
+        update={"webhook_base_url": "https://bot.example.com", "bot_token": SecretStr("42:TEST")}
+    )
+    app = create_app(configured, scenario.bot, scenario.dispatcher)
+    update = {
+        "update_id": 1,
+        "message": {
+            "message_id": 1,
+            "date": int(NOW.timestamp()),
+            "chat": {"id": CLIENT_ID, "type": "private"},
+            "from": {"id": CLIENT_ID, "is_bot": False, "first_name": "Айгуль"},
+            "text": "/start insta",
+        },
+    }
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as http:
+        forged = await http.post(WEBHOOK_PATH, json=update)
+        assert forged.status_code == 403
+        wrong = await http.post(
+            WEBHOOK_PATH, json=update, headers={"X-Telegram-Bot-Api-Secret-Token": "nope"}
+        )
+        assert wrong.status_code == 403
+        ok = await http.post(
+            WEBHOOK_PATH,
+            json=update,
+            headers={"X-Telegram-Bot-Api-Secret-Token": configured.webhook_token},
+        )
+        assert ok.status_code == 200
+
+    # The update is processed in the background — wait for it.
+    for _ in range(100):
+        if scenario.api.texts_to(CLIENT_ID):
+            break
+        await asyncio.sleep(0.02)
+    assert any("Здравствуйте" in text for text in scenario.api.texts_to(CLIENT_ID))
+    client = (await session.execute(select(User).where(User.telegram_id == CLIENT_ID))).scalar_one()
+    assert client.source == "instagram"
