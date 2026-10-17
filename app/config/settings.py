@@ -8,6 +8,7 @@ the codebase. Values are read from environment variables (and from a local
 from __future__ import annotations
 
 import hashlib
+import re
 from functools import lru_cache
 from typing import Literal
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -94,7 +95,16 @@ class Settings(BaseSettings):
     @field_validator("database_url", "test_database_url")
     @classmethod
     def _normalize_database_url(cls, value: str | None) -> str | None:
-        return normalize_database_url(value) if value else value
+        if not value:
+            return value
+        normalized = normalize_database_url(value)
+        if "://" not in normalized:
+            # Shown in the hosting logs — say plainly what is wrong.
+            raise ValueError(
+                "DATABASE_URL is not a database address: it must look like "
+                "postgresql://user:password@host/db (copy it from the Neon 'Connect' window)"
+            )
+        return normalized
 
     @field_validator("app_timezone")
     @classmethod
@@ -152,6 +162,8 @@ class Settings(BaseSettings):
 
 WEBHOOK_PATH = "/telegram/webhook"
 
+_POSTGRES_URL = re.compile(r"postgres(?:ql)?(?:\+asyncpg)?://[^\s'\"`]+")
+
 #: libpq query options that asyncpg does not understand.
 _LIBPQ_ONLY_OPTIONS = {"channel_binding", "gssencmode", "target_session_attrs"}
 
@@ -163,6 +175,12 @@ def normalize_database_url(url: str) -> str:
     meant for libpq. SQLAlchemy needs the ``postgresql+asyncpg`` driver and
     asyncpg spells the TLS option ``ssl`` — translate both.
     """
+    # People paste whatever the panel's "copy" button gave them: a bare URL,
+    # `psql 'postgresql://…'`, or `DATABASE_URL="postgresql://…"`. Pick the
+    # URL itself out of it.
+    found = _POSTGRES_URL.search(url)
+    if found:
+        url = found.group(0)
     parts = urlsplit(url.strip())
     scheme = parts.scheme
     if scheme in ("postgres", "postgresql"):
