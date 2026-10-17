@@ -1,3 +1,3 @@
-"""Tender / procurement Telegram bot — modular monolith application package."""
+"""Tender training & consulting Telegram bot — modular monolith application package."""
 
-__version__ = "1.0.0"
+__version__ = "2.0.0"

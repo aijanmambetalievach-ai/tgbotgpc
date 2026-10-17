@@ -1,7 +1,7 @@
 [project]
-name = "tender-bot"
-version = "1.0.0"
-description = "Telegram bot for the internal tender / procurement process"
+name = "tender-training-bot"
+version = "2.0.0"
+description = "Telegram bot for tender training and procurement consulting"
 requires-python = ">=3.12"
 
 [tool.ruff]

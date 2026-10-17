@@ -49,9 +49,7 @@ async def handle_error(event: ErrorEvent) -> bool:
     return True
 
 
-async def _respond(
-    message: Message | None, callback: CallbackQuery | None, text: str
-) -> None:
+async def _respond(message: Message | None, callback: CallbackQuery | None, text: str) -> None:
     try:
         if callback is not None:
             await callback.answer(text[:200], show_alert=True)

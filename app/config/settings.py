@@ -7,12 +7,13 @@ the codebase. Values are read from environment variables (and from a local
 
 from __future__ import annotations
 
-import datetime as dt
+import hashlib
 from functools import lru_cache
 from typing import Literal
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -38,7 +39,10 @@ class Settings(BaseSettings):
         alias="DATABASE_URL",
     )
     test_database_url: str | None = Field(default=None, alias="TEST_DATABASE_URL")
-    db_pool_size: int = Field(default=10, ge=1, le=100, alias="DB_POOL_SIZE")
+    #: ``0`` disables pooling: every update opens its own connection. Use it on
+    #: serverless Postgres (Neon), where idle pooled connections could keep the
+    #: database awake and burn the free compute hours.
+    db_pool_size: int = Field(default=10, ge=0, le=100, alias="DB_POOL_SIZE")
     db_max_overflow: int = Field(default=10, ge=0, le=100, alias="DB_MAX_OVERFLOW")
     db_echo: bool = Field(default=False, alias="DB_ECHO")
 
@@ -48,43 +52,49 @@ class Settings(BaseSettings):
     log_format: Literal["json", "console"] = Field(default="console", alias="LOG_FORMAT")
 
     app_timezone: str = Field(default="Asia/Bishkek", alias="APP_TIMEZONE")
-    default_deadline_time: str = Field(default="18:00", alias="DEFAULT_DEADLINE_TIME")
+
+    # --- Branding ---------------------------------------------------------
+    #: Shown in the greeting and in exported file names.
+    brand_name: str = Field(default="Тендер Академия", alias="BRAND_NAME")
 
     # --- HTTP API ---------------------------------------------------------
     api_host: str = Field(default="0.0.0.0", alias="API_HOST")
-    api_port: int = Field(default=8000, ge=1, le=65535, alias="API_PORT")
+    #: Hosting platforms such as Render pass the port to listen on as ``PORT``.
+    api_port: int = Field(
+        default=8000, ge=1, le=65535, validation_alias=AliasChoices("API_PORT", "PORT")
+    )
     api_enabled: bool = Field(default=True, alias="API_ENABLED")
 
+    # --- Webhook mode -----------------------------------------------------
+    #: Public HTTPS address of this app. When set, Telegram pushes updates to
+    #: ``<base>/telegram/webhook`` instead of the bot polling for them — this
+    #: is what lets a free instance that sleeps when idle wake up on a message.
+    #: Render provides ``RENDER_EXTERNAL_URL`` automatically.
+    webhook_base_url: str = Field(
+        default="", validation_alias=AliasChoices("WEBHOOK_BASE_URL", "RENDER_EXTERNAL_URL")
+    )
+    #: Checked against Telegram's ``X-Telegram-Bot-Api-Secret-Token`` header so
+    #: nobody else can post fake updates. Letters, digits, ``_`` and ``-`` only.
+    #: Optional: any string. Defaults to a value derived from the bot token.
+    webhook_secret: SecretStr = Field(default=SecretStr(""), alias="WEBHOOK_SECRET")
+
     # --- Limits -----------------------------------------------------------
-    max_items_per_request: int = Field(default=500, ge=1, alias="MAX_ITEMS_PER_REQUEST")
-    max_item_name_length: int = Field(default=300, ge=1, alias="MAX_ITEM_NAME_LENGTH")
-    max_comment_length: int = Field(default=2000, ge=1, alias="MAX_COMMENT_LENGTH")
-    max_procurement_title_length: int = Field(
-        default=300, ge=1, alias="MAX_PROCUREMENT_TITLE_LENGTH"
-    )
-    max_procurement_description_length: int = Field(
-        default=5000, ge=1, alias="MAX_PROCUREMENT_DESCRIPTION_LENGTH"
-    )
     max_message_length: int = Field(default=4000, ge=100, le=4096, alias="MAX_MESSAGE_LENGTH")
-    max_participants_per_procurement: int = Field(
-        default=1000, ge=1, alias="MAX_PARTICIPANTS_PER_PROCUREMENT"
-    )
-    max_input_length: int = Field(default=8000, ge=100, alias="MAX_INPUT_LENGTH")
-    #: Hard cap on an uploaded spreadsheet (Telegram itself allows up to 20 MB).
-    max_upload_size_bytes: int = Field(
-        default=5_000_000, ge=1_000, le=20_000_000, alias="MAX_UPLOAD_SIZE_BYTES"
-    )
-    #: Rows scanned in an uploaded sheet before giving up (zip-bomb guard).
-    max_upload_rows: int = Field(default=5_000, ge=10, alias="MAX_UPLOAD_ROWS")
-    preview_items_limit: int = Field(default=30, ge=1, alias="PREVIEW_ITEMS_LIMIT")
+    #: Telegram caps photo/video/document captions at 1024 characters.
+    max_caption_length: int = Field(default=1000, ge=100, le=1024, alias="MAX_CAPTION_LENGTH")
+    max_title_length: int = Field(default=300, ge=10, le=300, alias="MAX_TITLE_LENGTH")
+    max_text_length: int = Field(default=3500, ge=100, le=3800, alias="MAX_TEXT_LENGTH")
+    max_open_applications: int = Field(default=10, ge=1, alias="MAX_OPEN_APPLICATIONS")
     page_size: int = Field(default=8, ge=1, le=50, alias="PAGE_SIZE")
 
     # --- Anti-spam --------------------------------------------------------
     rate_limit_messages: int = Field(default=20, ge=1, alias="RATE_LIMIT_MESSAGES")
     rate_limit_window_seconds: int = Field(default=10, ge=1, alias="RATE_LIMIT_WINDOW_SECONDS")
 
-    # --- Invites ----------------------------------------------------------
-    invite_ttl_hours: int = Field(default=72, ge=1, alias="INVITE_TTL_HOURS")
+    @field_validator("database_url", "test_database_url")
+    @classmethod
+    def _normalize_database_url(cls, value: str | None) -> str | None:
+        return normalize_database_url(value) if value else value
 
     @field_validator("app_timezone")
     @classmethod
@@ -95,31 +105,32 @@ class Settings(BaseSettings):
             raise ValueError(f"Unknown timezone: {value!r}") from exc
         return value
 
-    @field_validator("default_deadline_time")
-    @classmethod
-    def _validate_default_time(cls, value: str) -> str:
-        try:
-            hour_raw, minute_raw = value.split(":", 1)
-            hour, minute = int(hour_raw), int(minute_raw)
-        except ValueError as exc:
-            raise ValueError("DEFAULT_DEADLINE_TIME must look like HH:MM") from exc
-        if not (0 <= hour <= 23 and 0 <= minute <= 59):
-            raise ValueError("DEFAULT_DEADLINE_TIME must be a valid time of day")
-        return f"{hour:02d}:{minute:02d}"
-
     # --- Derived helpers --------------------------------------------------
+    @property
+    def use_webhook(self) -> bool:
+        return bool(self.webhook_base_url.strip())
+
+    @property
+    def webhook_token(self) -> str:
+        """The ``secret_token`` Telegram echoes back with every webhook call.
+
+        Hashed, because Telegram allows only ``A-Z a-z 0-9 _ -`` there while
+        hosting panels generate secrets with any characters.
+        """
+        seed = self.webhook_secret.get_secret_value() or self.bot_token.get_secret_value()
+        return hashlib.sha256(f"webhook:{seed}".encode()).hexdigest()
+
+    @property
+    def webhook_url(self) -> str:
+        return self.webhook_base_url.strip().rstrip("/") + WEBHOOK_PATH
+
     @property
     def timezone(self) -> ZoneInfo:
         return ZoneInfo(self.app_timezone)
 
     @property
-    def default_deadline_time_obj(self) -> dt.time:
-        hour, minute = (int(part) for part in self.default_deadline_time.split(":"))
-        return dt.time(hour=hour, minute=minute)
-
-    @property
     def bootstrap_admin_ids(self) -> tuple[int, ...]:
-        """Parsed list of Telegram IDs promoted to TENDER_EMPLOYEE on startup."""
+        """Parsed list of Telegram IDs promoted to ADMIN on startup."""
         ids: list[int] = []
         for chunk in self.bootstrap_admin_telegram_ids.replace(";", ",").split(","):
             chunk = chunk.strip()
@@ -137,6 +148,33 @@ class Settings(BaseSettings):
         return self.database_url.replace("+asyncpg", "+psycopg2").replace(
             "postgresql+psycopg2", "postgresql"
         )
+
+
+WEBHOOK_PATH = "/telegram/webhook"
+
+#: libpq query options that asyncpg does not understand.
+_LIBPQ_ONLY_OPTIONS = {"channel_binding", "gssencmode", "target_session_attrs"}
+
+
+def normalize_database_url(url: str) -> str:
+    """Accept the connection string exactly as a hosting panel shows it.
+
+    Neon, Render and others hand out ``postgres://…?sslmode=require&…`` URLs
+    meant for libpq. SQLAlchemy needs the ``postgresql+asyncpg`` driver and
+    asyncpg spells the TLS option ``ssl`` — translate both.
+    """
+    parts = urlsplit(url.strip())
+    scheme = parts.scheme
+    if scheme in ("postgres", "postgresql"):
+        scheme = "postgresql+asyncpg"
+    if scheme != "postgresql+asyncpg":
+        return url.strip()
+    query = []
+    for key, value in parse_qsl(parts.query, keep_blank_values=True):
+        if key in _LIBPQ_ONLY_OPTIONS:
+            continue
+        query.append(("ssl" if key == "sslmode" else key, value))
+    return urlunsplit((scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
 
 
 @lru_cache(maxsize=1)

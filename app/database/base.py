@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Any
 
-from sqlalchemy import BigInteger, DateTime, MetaData, func
+from sqlalchemy import BigInteger, DateTime, Integer, MetaData, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 # Explicit naming convention keeps Alembic autogenerate diffs stable and makes
@@ -29,10 +29,15 @@ class Base(DeclarativeBase):
         return f"<{type(self).__name__} id={pk}>"
 
 
+#: ``bigint`` on PostgreSQL; plain ``INTEGER`` on SQLite, where only that type
+#: becomes an auto-incrementing rowid alias (keeps unit tests engine-agnostic).
+BigIntPK = BigInteger().with_variant(Integer(), "sqlite")
+
+
 class IntPKMixin:
     """Surrogate ``bigint`` primary key."""
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
 
 
 class TimestampMixin:

@@ -1,6 +1,6 @@
 """Concurrency-safe generation of human-readable business numbers.
 
-``TENDER-2026-000123`` / ``REQ-2026-000345``.
+``ZV-2026-000123``.
 
 The counter is incremented with a single atomic statement; PostgreSQL holds a
 row lock for the duration of the ``ON CONFLICT DO UPDATE``, so two concurrent
@@ -19,8 +19,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.number_counter import NumberCounter, NumberScope
 
-PROCUREMENT_PREFIX = "TENDER"
-REQUEST_PREFIX = "REQ"
+#: "Заявка" — short, readable when dictated over the phone.
+APPLICATION_PREFIX = "ZV"
 NUMBER_WIDTH = 6
 
 
@@ -42,10 +42,6 @@ class NumberingRepository:
         ).returning(NumberCounter.current_value)
         return int((await self.session.execute(stmt)).scalar_one())
 
-    async def next_procurement_number(self, year: int) -> str:
-        value = await self.next_value(NumberScope.PROCUREMENT, year)
-        return format_number(PROCUREMENT_PREFIX, year, value)
-
-    async def next_request_number(self, year: int) -> str:
-        value = await self.next_value(NumberScope.PURCHASE_REQUEST, year)
-        return format_number(REQUEST_PREFIX, year, value)
+    async def next_application_number(self, year: int) -> str:
+        value = await self.next_value(NumberScope.APPLICATION, year)
+        return format_number(APPLICATION_PREFIX, year, value)
