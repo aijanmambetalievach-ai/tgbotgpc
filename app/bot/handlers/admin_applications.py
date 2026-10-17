@@ -61,6 +61,7 @@ async def menu_statistics(
         texts.statistics(
             stats.clients_total,
             stats.clients_by_category,
+            stats.clients_by_source,
             stats.applications.by_status,
             stats.applications.last_7_days,
             stats.lessons_completed,

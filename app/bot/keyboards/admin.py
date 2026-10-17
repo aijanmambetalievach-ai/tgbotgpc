@@ -451,7 +451,6 @@ BROADCAST_AUDIENCES: dict[str, str] = {
     "ALL": "Всем клиентам",
     "PURCHASER": "🏛 Закупщикам",
     "SUPPLIER": "🏢 Поставщикам",
-    "BEGINNER": "🌱 Новичкам",
 }
 
 
@@ -480,6 +479,7 @@ def settings_menu() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [button("✏️ О нас", SettingsCB(action="edit", key="about").pack())],
             [button("✏️ Контакты", SettingsCB(action="edit", key="contacts").pack())],
+            [button("📸 Ссылки для Instagram", SettingsCB(action="links").pack())],
             [button("👁 Меню клиента", SettingsCB(action="client_mode").pack())],
         ]
     )

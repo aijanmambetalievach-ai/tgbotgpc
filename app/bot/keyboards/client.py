@@ -187,6 +187,12 @@ def after_lesson(lesson_id: int, next_id: int | None, show_all: bool) -> InlineK
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def support_cta() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[button("🤝 Оставить заявку", MenuCB(to="support").pack())]]
+    )
+
+
 def topics() -> InlineKeyboardMarkup:
     rows = [
         [button(label, FlowCB(action="topic", value=topic).pack())]

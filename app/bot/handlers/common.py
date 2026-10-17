@@ -15,9 +15,9 @@ from app.bot.callbacks import CategoryCB, FlowCB, NoopCB
 from app.bot.handlers.client import show_course_from_link
 from app.bot.handlers.helpers import answer_html, edit_or_send, menu_for
 from app.bot.keyboards import client as client_kb
-from app.bot.keyboards.common import admin_menu, client_menu
+from app.bot.keyboards.common import admin_menu
 from app.config.settings import get_settings
-from app.models.enums import ClientCategory
+from app.models.enums import SOURCE_PAYLOAD_PREFIXES, ClientCategory, ClientSource
 from app.models.user import User
 from app.services.client_service import ClientService
 
@@ -28,6 +28,7 @@ router = Router(name="common")
 #: ``/start course_12`` opens a course card — handy for advertising links.
 COURSE_DEEP_LINK = "course_"
 CONSULT_DEEP_LINK = "consult"
+SUPPORT_DEEP_LINK = "support"
 #: FSM state name prefixes that belong to client-side dialogs.
 CLIENT_STATE_PREFIXES = ("ClientFlow", "ClientChat", "ProfileEdit", "Quiz")
 
@@ -41,7 +42,8 @@ async def start(
     state: FSMContext,
 ) -> None:
     await state.clear()
-    payload = (command.args or "").strip()
+    source, payload = parse_start_payload(command.args)
+    await ClientService(session).record_source(user, source)
 
     if user.is_admin and not payload:
         await answer_html(message, texts.welcome_admin(user.full_name), reply_markup=admin_menu())
@@ -50,7 +52,7 @@ async def start(
     await answer_html(
         message,
         texts.welcome(user.full_name, get_settings().brand_name),
-        reply_markup=client_menu(),
+        reply_markup=menu_for(user, client_side=True),
     )
     if user.category is None and not user.is_admin:
         await answer_html(message, texts.ASK_CATEGORY, reply_markup=client_kb.categories())
@@ -69,6 +71,21 @@ async def _open_deep_link(
             await show_course_from_link(message, session, user, int(course_id))
     elif payload == CONSULT_DEEP_LINK:
         await answer_html(message, texts.CONSULTATION_INTRO, reply_markup=client_kb.topics())
+    elif payload == SUPPORT_DEEP_LINK:
+        await answer_html(message, texts.SUPPORT_CTA, reply_markup=client_kb.support_cta())
+
+
+def parse_start_payload(raw: str | None) -> tuple[str, str]:
+    """Split a ``/start`` payload into ``(source, rest)``.
+
+    ``insta`` → ``("instagram", "")``; ``insta_course_5`` →
+    ``("instagram", "course_5")``; ``course_5`` → ``("direct", "course_5")``.
+    """
+    payload = (raw or "").strip()
+    for prefix, source in SOURCE_PAYLOAD_PREFIXES.items():
+        if payload == prefix or payload.startswith(f"{prefix}_"):
+            return source, payload.removeprefix(prefix).removeprefix("_")
+    return ClientSource.DIRECT, payload
 
 
 @router.callback_query(CategoryCB.filter())
@@ -88,12 +105,15 @@ async def choose_category(
     await callback.answer("Сохранено")
     if callback_data.edit:
         await edit_or_send(callback, texts.profile(user), reply_markup=client_kb.profile())
+    else:
+        await edit_or_send(callback, f"Отлично! Вы: {texts.category_label(category)}.")
+    if isinstance(callback.message, Message):
+        # The menu depends on the category (suppliers get tender support).
+        await callback.message.answer(
+            texts.category_menu_hint(category), reply_markup=menu_for(user, client_side=True)
+        )
+    if callback_data.edit:
         return
-    await edit_or_send(
-        callback,
-        f"Отлично! Вы: {texts.category_label(category)}.\n\nВыберите раздел в меню ниже 👇",
-        reply_markup=client_kb.training_menu(),
-    )
     data = await state.get_data()
     payload = str(data.get("deep_link", ""))
     await state.clear()
@@ -106,17 +126,17 @@ async def help_command(message: Message, user: User) -> None:
     if user.is_admin:
         await answer_html(message, texts.HELP_ADMIN, reply_markup=admin_menu())
     else:
-        await answer_html(message, texts.HELP_CLIENT, reply_markup=client_menu())
+        await answer_html(message, texts.HELP_CLIENT, reply_markup=menu_for(user, client_side=True))
 
 
 @router.message(Command("client"))
-async def client_mode(message: Message, state: FSMContext) -> None:
+async def client_mode(message: Message, user: User, state: FSMContext) -> None:
     """Admins can try the bot exactly as a client sees it."""
     await state.clear()
     await answer_html(
         message,
         "👁 Меню клиента. Вернуться в админ-панель: /admin",
-        reply_markup=client_menu(),
+        reply_markup=menu_for(user, client_side=True),
     )
 
 
@@ -124,7 +144,7 @@ async def client_mode(message: Message, state: FSMContext) -> None:
 async def admin_mode(message: Message, user: User, state: FSMContext) -> None:
     await state.clear()
     if not user.is_admin:
-        await answer_html(message, texts.HELP_CLIENT, reply_markup=client_menu())
+        await answer_html(message, texts.HELP_CLIENT, reply_markup=menu_for(user, client_side=True))
         return
     await answer_html(message, texts.welcome_admin(user.full_name), reply_markup=admin_menu())
 

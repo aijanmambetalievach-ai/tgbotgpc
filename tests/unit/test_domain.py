@@ -4,11 +4,19 @@ from __future__ import annotations
 
 import pytest
 
+from app.bot.handlers.common import parse_start_payload
 from app.domain.exceptions import InvalidStatusTransitionError, ValidationError
 from app.domain.quiz import parse_question
 from app.domain.text import html_to_plain, normalize_phone, sanitize_excel_cell
 from app.domain.transitions import can_transition, ensure_transition
-from app.models.enums import CATEGORY_AUDIENCES, ApplicationStatus, Audience, ClientCategory
+from app.models.enums import (
+    CATEGORY_AUDIENCES,
+    CATEGORY_SERVICES,
+    ApplicationStatus,
+    ApplicationType,
+    Audience,
+    ClientCategory,
+)
 
 S = ApplicationStatus
 
@@ -97,6 +105,27 @@ def test_client_can_only_cancel_open_applications() -> None:
 def test_category_audiences() -> None:
     assert Audience.SUPPLIER not in CATEGORY_AUDIENCES[ClientCategory.PURCHASER]
     assert Audience.ALL in CATEGORY_AUDIENCES[ClientCategory.SUPPLIER]
-    # Beginners and clients who skipped the question see everything.
-    assert set(CATEGORY_AUDIENCES[ClientCategory.BEGINNER]) == set(Audience)
+    # Clients who have not chosen yet see everything.
     assert set(CATEGORY_AUDIENCES[None]) == set(Audience)
+
+
+def test_tender_support_is_a_supplier_service() -> None:
+    assert ApplicationType.SUPPORT in CATEGORY_SERVICES[ClientCategory.SUPPLIER]
+    assert ApplicationType.SUPPORT not in CATEGORY_SERVICES[ClientCategory.PURCHASER]
+    assert ApplicationType.SUPPORT not in CATEGORY_SERVICES[None]
+    assert ApplicationType.CONSULTATION in CATEGORY_SERVICES[ClientCategory.PURCHASER]
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("insta", ("instagram", "")),
+        ("insta_consult", ("instagram", "consult")),
+        ("insta_course_5", ("instagram", "course_5")),
+        ("course_5", ("direct", "course_5")),
+        ("instagram", ("direct", "instagram")),
+        (None, ("direct", "")),
+    ],
+)
+def test_start_payload_carries_the_source(raw: str | None, expected: tuple[str, str]) -> None:
+    assert parse_start_payload(raw) == expected

@@ -33,6 +33,7 @@ from aiogram.types import (
     Message,
     MessageId,
     PhotoSize,
+    ReplyKeyboardMarkup,
     Update,
 )
 from aiogram.types import User as TgUser
@@ -43,7 +44,7 @@ from app.bot import texts
 from app.bot.middlewares.throttling import ThrottlingMiddleware
 from app.database.session import dispose_engine, init_engine
 from app.models.application import Application
-from app.models.enums import ApplicationStatus, ClientCategory, UserRole
+from app.models.enums import ApplicationStatus, ApplicationType, ClientCategory, UserRole
 from app.models.user import User
 from tests.integration.conftest import create_user
 
@@ -341,3 +342,54 @@ async def test_lesson_quiz_through_the_bot(scenario: Scenario, session: AsyncSes
         (await session.execute(select(User).where(User.telegram_id == CLIENT_ID))).scalar_one()
     )
     assert listing.completed == {lesson.id}
+
+
+async def test_supplier_from_instagram_orders_tender_support(
+    scenario: Scenario, session: AsyncSession
+) -> None:
+    await create_user(
+        session, telegram_id=ADMIN_ID, full_name="Админ", role=UserRole.ADMIN, category=None
+    )
+    api = scenario.api
+
+    # The Instagram story link: source is recorded, the category is asked first.
+    await scenario.message(CLIENT_ID, "/start insta_support")
+    await scenario.press_button(CLIENT_ID, "Поставщик")
+    client = (await session.execute(select(User).where(User.telegram_id == CLIENT_ID))).scalar_one()
+    assert client.source == "instagram"
+
+    # Suppliers get the tender support button in their menu.
+    menus = [
+        call.reply_markup
+        for call in api.calls
+        if isinstance(call, SendMessage)
+        and call.chat_id == CLIENT_ID
+        and isinstance(call.reply_markup, ReplyKeyboardMarkup)
+    ]
+    assert texts.BTN_SUPPORT in {b.text for row in menus[-1].keyboard for b in row}
+
+    # The deep link continues straight to the support offer.
+    await scenario.press_button(CLIENT_ID, "Оставить заявку")
+    await scenario.message(CLIENT_ID, "Объявление №12345, поставка мебели, подача до 25.10")
+    await scenario.press_button(CLIENT_ID, "Позвонить мне")
+    await scenario.message(CLIENT_ID, "завтра после 14:00")
+    await scenario.press_button(CLIENT_ID, "Айгуль")
+    await scenario.message(CLIENT_ID, "0555 123 456")
+    api.clear()
+    await scenario.press_button(CLIENT_ID, "Отправить заявку")
+
+    application = (await session.execute(select(Application))).scalar_one()
+    assert application.type is ApplicationType.SUPPORT
+    assert application.preferred_time == "завтра после 14:00"
+    assert any("Тендерное сопровождение" in text for text in api.texts_to(ADMIN_ID))
+
+
+async def test_purchaser_is_offered_no_tender_support(
+    scenario: Scenario, session: AsyncSession
+) -> None:
+    await create_user(
+        session, telegram_id=CLIENT_ID, full_name="Данияр", category=ClientCategory.PURCHASER
+    )
+    await scenario.message(CLIENT_ID, texts.BTN_SUPPORT)
+    assert any("для <b>поставщиков</b>" in text for text in scenario.api.texts_to(CLIENT_ID))
+    assert (await session.execute(select(Application))).first() is None

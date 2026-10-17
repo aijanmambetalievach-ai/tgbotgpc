@@ -14,7 +14,7 @@ from app.bot import texts
 from app.bot.keyboards.common import admin_menu, client_menu
 from app.config.settings import get_settings
 from app.domain.text import escape_html, html_to_plain
-from app.models.enums import MediaType
+from app.models.enums import CATEGORY_SERVICES, ApplicationType, MediaType
 from app.models.user import User
 from app.services.application_service import Attachment
 
@@ -135,4 +135,6 @@ def menu_for(user: User, *, client_side: bool = False) -> ReplyKeyboardMarkup:
     """Admins get the admin keyboard unless they are trying the client side."""
     if user.is_admin and not client_side:
         return admin_menu()
-    return client_menu()
+    # Admins previewing the client side see every service.
+    offered = CATEGORY_SERVICES[user.category]
+    return client_menu(show_support=user.is_admin or ApplicationType.SUPPORT in offered)

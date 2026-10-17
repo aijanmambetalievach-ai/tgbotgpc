@@ -17,11 +17,11 @@ class UserRole(StrEnum):
 
 
 class ClientCategory(StrEnum):
-    """Who the client is — drives which content is suggested to them."""
+    """Who the client is — the two directions of the centre. Drives which
+    content and services (tender support is for suppliers) are offered."""
 
     PURCHASER = "PURCHASER"
     SUPPLIER = "SUPPLIER"
-    BEGINNER = "BEGINNER"
 
 
 class Audience(StrEnum):
@@ -30,7 +30,6 @@ class Audience(StrEnum):
     ALL = "ALL"
     PURCHASER = "PURCHASER"
     SUPPLIER = "SUPPLIER"
-    BEGINNER = "BEGINNER"
 
 
 class ContentStatus(StrEnum):
@@ -55,6 +54,7 @@ class ApplicationType(StrEnum):
     COURSE = "COURSE"
     INDIVIDUAL = "INDIVIDUAL"
     CONSULTATION = "CONSULTATION"
+    SUPPORT = "SUPPORT"
 
 
 class ApplicationStatus(StrEnum):
@@ -90,20 +90,17 @@ ROLE_LABELS: dict[UserRole, str] = {
 CATEGORY_LABELS: dict[ClientCategory, str] = {
     ClientCategory.PURCHASER: "Закупщик (госорган)",
     ClientCategory.SUPPLIER: "Поставщик",
-    ClientCategory.BEGINNER: "Новичок",
 }
 
 CATEGORY_ICONS: dict[ClientCategory, str] = {
     ClientCategory.PURCHASER: "🏛",
     ClientCategory.SUPPLIER: "🏢",
-    ClientCategory.BEGINNER: "🌱",
 }
 
 AUDIENCE_LABELS: dict[Audience, str] = {
     Audience.ALL: "Для всех",
     Audience.PURCHASER: "Для закупщиков",
     Audience.SUPPLIER: "Для поставщиков",
-    Audience.BEGINNER: "Для новичков",
 }
 
 CONTENT_STATUS_LABELS: dict[ContentStatus, str] = {
@@ -122,12 +119,14 @@ APPLICATION_TYPE_LABELS: dict[ApplicationType, str] = {
     ApplicationType.COURSE: "Запись на курс",
     ApplicationType.INDIVIDUAL: "Индивидуальное обучение",
     ApplicationType.CONSULTATION: "Консультация",
+    ApplicationType.SUPPORT: "Тендерное сопровождение",
 }
 
 APPLICATION_TYPE_ICONS: dict[ApplicationType, str] = {
     ApplicationType.COURSE: "📚",
     ApplicationType.INDIVIDUAL: "🎯",
     ApplicationType.CONSULTATION: "💬",
+    ApplicationType.SUPPORT: "🤝",
 }
 
 APPLICATION_STATUS_LABELS: dict[ApplicationStatus, str] = {
@@ -173,6 +172,36 @@ CATEGORY_AUDIENCES: dict[ClientCategory | None, tuple[Audience, ...]] = {
     None: tuple(Audience),
     ClientCategory.PURCHASER: (Audience.ALL, Audience.PURCHASER),
     ClientCategory.SUPPLIER: (Audience.ALL, Audience.SUPPLIER),
-    # Beginners are still exploring, so they are shown everything.
-    ClientCategory.BEGINNER: tuple(Audience),
 }
+
+#: Application types offered to each category (``None`` = not chosen yet).
+#: Tender support — preparing and accompanying a bid — is a supplier service.
+CATEGORY_SERVICES: dict[ClientCategory | None, frozenset[ApplicationType]] = {
+    None: frozenset(
+        {ApplicationType.COURSE, ApplicationType.INDIVIDUAL, ApplicationType.CONSULTATION}
+    ),
+    ClientCategory.PURCHASER: frozenset(
+        {ApplicationType.COURSE, ApplicationType.INDIVIDUAL, ApplicationType.CONSULTATION}
+    ),
+    ClientCategory.SUPPLIER: frozenset(ApplicationType),
+}
+
+
+class ClientSource:
+    """Where a client first came from (taken from the ``/start`` link).
+
+    String constants rather than an enum: a new advertising channel must not
+    need a migration.
+    """
+
+    INSTAGRAM = "instagram"
+    DIRECT = "direct"
+
+
+SOURCE_LABELS: dict[str, str] = {
+    ClientSource.INSTAGRAM: "📸 Instagram",
+    ClientSource.DIRECT: "✈️ Telegram напрямую",
+}
+
+#: ``/start`` payload prefix -> source. ``insta`` keeps Instagram links short.
+SOURCE_PAYLOAD_PREFIXES: dict[str, str] = {"insta": ClientSource.INSTAGRAM}

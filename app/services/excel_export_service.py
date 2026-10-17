@@ -29,6 +29,7 @@ from app.models.enums import (
     APPLICATION_TYPE_LABELS,
     CATEGORY_LABELS,
     CONTACT_METHOD_LABELS,
+    SOURCE_LABELS,
     TOPIC_LABELS,
 )
 from app.models.user import User
@@ -67,6 +68,7 @@ CLIENT_HEADERS = (
     "Телефон",
     "Организация",
     "Telegram",
+    "Откуда пришел",
     "Дата регистрации",
     "Доступ",
 )
@@ -140,6 +142,7 @@ class ExcelExportService:
                     client.phone or "",
                     client.organization or "",
                     f"@{client.telegram_username}" if client.telegram_username else "",
+                    SOURCE_LABELS.get(client.source or "", client.source or "").split(" ", 1)[-1],
                     format_datetime(client.created_at, tz),
                     "активен" if client.is_active else "заблокирован",
                 ],

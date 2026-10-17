@@ -36,10 +36,13 @@ class User(IntPKMixin, TimestampMixin, Base):
         nullable=True,
     )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    #: First-touch channel from the ``/start`` link (see ``ClientSource``).
+    source: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
     __table_args__ = (
         Index("ix_users_role_is_active", "role", "is_active"),
         Index("ix_users_category", "category"),
+        Index("ix_users_source", "source"),
     )
 
     # --- Convenience -------------------------------------------------------

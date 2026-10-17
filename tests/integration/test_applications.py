@@ -16,6 +16,7 @@ from app.domain.exceptions import (
 from app.models.enums import (
     ApplicationStatus,
     ApplicationType,
+    ClientCategory,
     ConsultationTopic,
     ContactMethod,
     ContentStatus,
@@ -124,6 +125,26 @@ async def test_clients_cannot_see_or_touch_other_clients_applications(
 
     own = await service.list_own(other_client)
     assert own.total == 0
+
+
+async def test_tender_support_only_for_suppliers(
+    session: AsyncSession, admin: User, client: User, other_client: User
+) -> None:
+    service = ApplicationService(session)
+    assert client.category is ClientCategory.SUPPLIER
+    created = await service.request_support(
+        client,
+        "Объявление №12345, поставка мебели, подача до 25 октября",
+        ContactMethod.PHONE,
+        attachment=Attachment(MediaType.DOCUMENT, "tender-docs"),
+        preferred_time="завтра после 14:00",
+    )
+    assert created.application.type is ApplicationType.SUPPORT
+    assert created.application.preferred_time == "завтра после 14:00"
+
+    assert other_client.category is ClientCategory.PURCHASER
+    with pytest.raises(ContentUnavailableError, match="для поставщиков"):
+        await service.request_support(other_client, "Хочу сопровождение")
 
 
 async def test_status_changes(session: AsyncSession, admin: User, client: User) -> None:

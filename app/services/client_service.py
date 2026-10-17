@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 MIN_NAME_LENGTH = 2
 MAX_NAME_LENGTH = 255
 MAX_ORGANIZATION_LENGTH = 255
+MAX_SOURCE_LENGTH = 32
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,6 +69,13 @@ class ClientService:
             actor_user_id=user.id,
         )
         await self.session.commit()
+        return user
+
+    async def record_source(self, user: User, source: str) -> User:
+        """Remember where a client first came from — later links don't overwrite it."""
+        if user.source is None and not user.is_admin:
+            user.source = sanitize_text(source, MAX_SOURCE_LENGTH) or None
+            await self.session.commit()
         return user
 
     @staticmethod

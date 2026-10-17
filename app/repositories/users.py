@@ -63,6 +63,14 @@ class UserRepository:
         )
         return {category: int(count) for category, count in await self.session.execute(stmt)}
 
+    async def count_clients_by_source(self) -> dict[str | None, int]:
+        stmt = (
+            select(User.source, func.count(User.id))
+            .where(User.role == UserRole.CLIENT)
+            .group_by(User.source)
+        )
+        return {source: int(count) for source, count in await self.session.execute(stmt)}
+
     async def count_applications_of(self, user_id: int) -> int:
         stmt = select(func.count(Application.id)).where(Application.client_id == user_id)
         return int((await self.session.execute(stmt)).scalar_one())

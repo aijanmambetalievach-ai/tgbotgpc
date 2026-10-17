@@ -20,12 +20,13 @@ from app.bot.handlers.helpers import (
     chat_id_of,
     edit_or_send,
     extract_attachment,
+    menu_for,
     plain_text,
     send_html,
     send_media,
 )
 from app.bot.keyboards import client as kb
-from app.bot.keyboards.common import client_menu, flow_cancel, share_phone
+from app.bot.keyboards.common import flow_cancel, share_phone
 from app.bot.states import ClientChat, ProfileEdit, Quiz
 from app.config.settings import get_settings
 from app.domain.exceptions import DomainError
@@ -441,7 +442,7 @@ async def application_write_message(
         user, int(data["application_id"]), text, attachment
     )
     await state.clear()
-    await answer_html(message, texts.MESSAGE_SENT, reply_markup=client_menu())
+    await answer_html(message, texts.MESSAGE_SENT, reply_markup=menu_for(user, client_side=True))
     await NotificationService(bot).notify_client_message(posted)
 
 
@@ -517,7 +518,7 @@ async def profile_organization(
 
 async def _profile_saved(message: Message, user: User, state: FSMContext) -> None:
     await state.clear()
-    await answer_html(message, texts.PROFILE_SAVED, reply_markup=client_menu())
+    await answer_html(message, texts.PROFILE_SAVED, reply_markup=menu_for(user, client_side=True))
     await answer_html(message, texts.profile(user), reply_markup=kb.profile())
 
 

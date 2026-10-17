@@ -28,6 +28,7 @@ from app.models.enums import (
     CONTACT_METHOD_LABELS,
     CONTENT_STATUS_LABELS,
     DELIVERY_LABELS,
+    SOURCE_LABELS,
     TOPIC_LABELS,
     ApplicationStatus,
     ApplicationType,
@@ -40,6 +41,7 @@ from app.models.user import User
 # --- client reply keyboard ---------------------------------------------------
 BTN_TRAINING = "📚 Обучение"
 BTN_CONSULTATION = "💬 Консультация"
+BTN_SUPPORT = "🤝 Сопровождение тендера"
 BTN_MY_APPLICATIONS = "📋 Мои заявки"
 BTN_FAQ = "❓ Частые вопросы"
 BTN_ABOUT = "ℹ️ О нас и контакты"
@@ -74,8 +76,9 @@ USE_BUTTONS = "Выберите вариант кнопкой выше или н
 def welcome(name: str, brand: str) -> str:
     return (
         f"👋 Здравствуйте, {escape_html(name)}!\n\n"
-        f"Это бот <b>{escape_html(brand)}</b> — обучение государственным закупкам "
-        "и консультации для закупщиков и поставщиков.\n\n"
+        f"Это бот <b>{escape_html(brand)}</b>. Мы работаем по двум направлениям:\n\n"
+        "🏛 <b>Закупщикам (госорганам)</b> — обучение и консультации.\n"
+        "🏢 <b>Поставщикам</b> — обучение, консультации и тендерное сопровождение.\n\n"
         f"{BTN_TRAINING} — живые курсы, уроки прямо в Telegram, индивидуальные занятия.\n"
         f"{BTN_CONSULTATION} — задайте вопрос специалисту.\n"
         f"{BTN_FAQ} — быстрые ответы на популярные вопросы."
@@ -83,7 +86,10 @@ def welcome(name: str, brand: str) -> str:
 
 
 ASK_CATEGORY = (
-    "Расскажите немного о себе, чтобы мы показывали подходящие материалы.\n\n<b>Кто вы?</b>"
+    "<b>Кто вы?</b>\n\n"
+    "🏛 <b>Закупщик</b> — сотрудник госоргана, проводите закупки.\n"
+    "🏢 <b>Поставщик</b> — компания или ИП, участвуете в тендерах.\n\n"
+    "От выбора зависят подходящие курсы и услуги. Изменить можно в «👤 Мои данные»."
 )
 
 
@@ -104,6 +110,8 @@ HELP_CLIENT = (
     "• 🎯 Индивидуальное обучение — занятия один на один.\n\n"
     f"{BTN_CONSULTATION} — опишите вопрос, можно приложить скриншот или документ. "
     "Ответ специалиста придет сюда же.\n\n"
+    f"{BTN_SUPPORT} — для поставщиков: подготовим заявку на тендер и сопроводим "
+    "до подписания договора.\n\n"
     f"{BTN_MY_APPLICATIONS} — статус ваших заявок и переписка.\n"
     f"{BTN_PROFILE} — имя, телефон и организация.\n\n"
     "Команды: /start, /help, /cancel"
@@ -111,14 +119,15 @@ HELP_CLIENT = (
 
 HELP_ADMIN = (
     "<b>Админ-панель</b>\n\n"
-    f"{BTN_ADMIN_APPLICATIONS} — записи на курсы, индивидуальное обучение и консультации. "
+    f"{BTN_ADMIN_APPLICATIONS} — записи на курсы, индивидуальное обучение, консультации "
+    "и тендерное сопровождение. "
     "Отвечайте клиентам прямо из карточки заявки.\n"
     f"{BTN_ADMIN_COURSES} — живые курсы: создание, публикация, архив.\n"
     f"{BTN_ADMIN_LESSONS} — уроки в боте и тесты к ним.\n"
     f"{BTN_ADMIN_FAQ} — частые вопросы.\n"
     f"{BTN_ADMIN_CLIENTS} — список клиентов, блокировка, выгрузка в Excel.\n"
     f"{BTN_ADMIN_BROADCAST} — сообщение всем клиентам или одной категории.\n"
-    f"{BTN_ADMIN_SETTINGS} — тексты «О нас» и «Контакты».\n\n"
+    f"{BTN_ADMIN_SETTINGS} — тексты «О нас» и «Контакты», ссылки для Instagram.\n\n"
     "Форматирование (жирный, курсив, ссылки) в описаниях, уроках и ответах сохраняется.\n\n"
     "Команды: /start, /help, /cancel, /client, /admin"
 )
@@ -127,6 +136,12 @@ HELP_ADMIN = (
 # =============================================================================
 # Labels
 # =============================================================================
+def source_label(source: str | None) -> str:
+    if source is None:
+        return "неизвестно"
+    return SOURCE_LABELS.get(source, escape_html(source))
+
+
 def category_label(category: ClientCategory | None) -> str:
     if category is None:
         return "не указано"
@@ -143,6 +158,8 @@ def application_subject(application: Application) -> str:
         return application.course_title or "Курс"
     if application.topic is not None:
         return TOPIC_LABELS[application.topic]
+    if application.type is ApplicationType.SUPPORT:
+        return truncate(application.description, 60) or APPLICATION_TYPE_LABELS[application.type]
     return APPLICATION_TYPE_LABELS[application.type]
 
 
@@ -278,6 +295,37 @@ ASK_PREFERRED_TIME = (
     "Например: «будни после 15:00» или «в субботу утром».\n\n" + SKIP_HINT
 )
 CONSULTATION_INTRO = "💬 <b>Консультация специалиста</b>\n\nВыберите тему вопроса:"
+
+
+SUPPORT_INTRO = (
+    "🤝 <b>Тендерное сопровождение</b>\n\n"
+    "Поможем участвовать в тендере «под ключ»:\n"
+    "• разберем конкурсную документацию и требования;\n"
+    "• подготовим заявку и документы на портале;\n"
+    "• проверим техническую часть и цену;\n"
+    "• поможем с разъяснениями, жалобами и договором.\n\n"
+    "Опишите задачу одним сообщением: <b>номер объявления или ссылку на тендер</b>, "
+    "что поставляете и срок подачи. Можно приложить документацию файлом."
+)
+SUPPORT_CTA = (
+    "🤝 <b>Тендерное сопровождение для поставщиков</b>\n\n"
+    "Подготовим заявку на тендер, проверим документы и сопроводим до подписания договора."
+)
+
+
+def category_menu_hint(category: ClientCategory) -> str:
+    if category is ClientCategory.SUPPLIER:
+        offer = f"обучение, консультации и {BTN_SUPPORT}"
+    else:
+        offer = "обучение и консультации"
+    return f"Для вас: {offer}.\nВыберите раздел в меню ниже 👇"
+
+
+SUPPORT_SUPPLIERS_ONLY = (
+    "🤝 Тендерное сопровождение — услуга для <b>поставщиков</b>.\n\n"
+    f"Если вы поставщик, отметьте это в разделе {BTN_PROFILE} → «✏️ Кто я». "
+    f"Закупщикам поможем в разделе {BTN_CONSULTATION}."
+)
 
 
 def consultation_ask_question(topic_label: str) -> str:
@@ -723,7 +771,6 @@ CLIENT_FILTER_LABELS: dict[str, str] = {
     "all": "Все",
     ClientCategory.PURCHASER: "🏛 Закупщики",
     ClientCategory.SUPPLIER: "🏢 Поставщики",
-    ClientCategory.BEGINNER: "🌱 Новички",
 }
 
 
@@ -746,6 +793,7 @@ def admin_client_card(user: User, applications: int, tz: ZoneInfo) -> str:
         f"Организация: {escape_html(user.organization or '—')}",
         "Telegram: "
         + (f"@{escape_html(user.telegram_username)}" if user.telegram_username else "—"),
+        f"Откуда пришел: {source_label(user.source)}",
         f"С нами с: {format_date(user.created_at, tz)}",
         f"Заявок: {applications}",
         f"Доступ: {'✅ активен' if user.is_active else '🚫 заблокирован'}",
@@ -786,12 +834,31 @@ SETTINGS_ASK: dict[str, str] = {
     "about": "Отправьте новый текст «О нас» (форматирование сохранится):",
     "contacts": "Отправьте новые контакты: телефон, адрес, сайт, соцсети:",
 }
+
+
+def instagram_links(bot_username: str) -> str:
+    base = f"https://t.me/{bot_username}?start="
+    return (
+        "📸 <b>Ссылки для Instagram</b>\n\n"
+        "Клиенты, пришедшие по этим ссылкам, попадают в статистику как «📸 Instagram».\n\n"
+        f"<b>Шапка профиля</b> (главное меню бота):\n<code>{base}insta</code>\n\n"
+        "<b>Сторис / пост про консультации</b> (сразу выбор темы):\n"
+        f"<code>{base}insta_consult</code>\n\n"
+        f"<b>Для поставщиков — сопровождение</b>:\n<code>{base}insta_support</code>\n\n"
+        "<b>Конкретный курс</b>: возьмите ссылку из карточки курса и замените "
+        "<code>start=course_</code> на <code>start=insta_course_</code>.\n\n"
+        "<i>Нажмите на ссылку, чтобы скопировать. В Instagram ее можно поставить "
+        "в шапку профиля, в стикер «Ссылка» в сторис и в автоответ Direct.</i>"
+    )
+
+
 SETTINGS_SAVED = "✅ Сохранено. Так это увидят клиенты:"
 
 
 def statistics(
     clients_total: int,
     by_category: dict[ClientCategory | None, int],
+    by_source: dict[str | None, int],
     by_status: dict[ApplicationStatus, int],
     last_7_days: dict[ApplicationType, int],
     lessons_completed: int,
@@ -801,6 +868,9 @@ def statistics(
         lines.append(f"   {category_label(category)}: {by_category.get(category, 0)}")
     if by_category.get(None):
         lines.append(f"   не указали: {by_category[None]}")
+    lines += ["", "📍 <b>Откуда пришли</b>"]
+    for source, count in sorted(by_source.items(), key=lambda item: -item[1]):
+        lines.append(f"   {source_label(source)}: {count}")
     lines += ["", "📥 <b>Заявки</b>"]
     for status in ApplicationStatus:
         lines.append(f"   {application_status(status)}: {by_status.get(status, 0)}")

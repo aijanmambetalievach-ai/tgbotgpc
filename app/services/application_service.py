@@ -30,6 +30,7 @@ from app.models.application import Application, ApplicationMessage
 from app.models.audit_log import AuditAction
 from app.models.content import Course
 from app.models.enums import (
+    CATEGORY_SERVICES,
     OPEN_APPLICATION_STATUSES,
     ApplicationStatus,
     ApplicationType,
@@ -166,6 +167,33 @@ class ApplicationService:
             kind=ApplicationType.CONSULTATION,
             description=self._description(description, allow_empty=attachment is not None),
             topic=topic,
+            contact_method=contact_method,
+            attachment=attachment,
+            preferred_time=preferred_time,
+        )
+
+    async def request_support(
+        self,
+        client: User,
+        description: str,
+        contact_method: ContactMethod = ContactMethod.TELEGRAM,
+        attachment: Attachment | None = None,
+        preferred_time: str = "",
+    ) -> CreatedApplication:
+        """Tender support — help preparing and accompanying a supplier's bid."""
+        self._check_client(client)
+        if (
+            not client.is_admin
+            and ApplicationType.SUPPORT not in CATEGORY_SERVICES[client.category]
+        ):
+            raise ContentUnavailableError(
+                "Тендерное сопровождение — услуга для поставщиков. "
+                "Если вы поставщик, укажите это в разделе «👤 Мои данные»."
+            )
+        return await self._create(
+            client,
+            kind=ApplicationType.SUPPORT,
+            description=self._description(description, allow_empty=attachment is not None),
             contact_method=contact_method,
             attachment=attachment,
             preferred_time=preferred_time,

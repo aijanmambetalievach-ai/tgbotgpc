@@ -16,10 +16,14 @@ from app.bot import texts
 from app.bot.callbacks import FlowCB, NoopCB
 
 
-def client_menu() -> ReplyKeyboardMarkup:
-    """Persistent reply keyboard — clients never have to remember commands."""
+def client_menu(show_support: bool = False) -> ReplyKeyboardMarkup:
+    """Persistent reply keyboard — clients never have to remember commands.
+
+    ``show_support`` adds the tender support button (a supplier service).
+    """
     rows = [
         [KeyboardButton(text=texts.BTN_TRAINING), KeyboardButton(text=texts.BTN_CONSULTATION)],
+        *([[KeyboardButton(text=texts.BTN_SUPPORT)]] if show_support else []),
         [KeyboardButton(text=texts.BTN_MY_APPLICATIONS), KeyboardButton(text=texts.BTN_FAQ)],
         [KeyboardButton(text=texts.BTN_ABOUT), KeyboardButton(text=texts.BTN_PROFILE)],
     ]

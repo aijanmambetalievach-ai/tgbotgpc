@@ -34,6 +34,18 @@ async def test_first_contact_registers_a_client(session: AsyncSession) -> None:
     assert again.full_name == "Айгуль", "the name a client gave us is not overwritten"
 
 
+async def test_first_source_is_kept(session: AsyncSession, client: User, admin: User) -> None:
+    service = ClientService(session)
+    await service.record_source(client, "instagram")
+    await service.record_source(client, "direct")
+    assert client.source == "instagram"
+    await service.record_source(admin, "instagram")
+    assert admin.source is None, "admins are not counted as marketing leads"
+
+    stats = await StatisticsService(session).dashboard(admin)
+    assert stats.clients_by_source == {"instagram": 1}
+
+
 async def test_bootstrap_promotes_admins(session: AsyncSession, settings: Settings) -> None:
     existing = await AuthService(session).resolve_or_register(6002, None, "Будущий админ")
     configured = settings.model_copy(update={"bootstrap_admin_telegram_ids": "6001, 6002"})

@@ -21,7 +21,7 @@ from app.bot.callbacks import (
     LessonCB,
     QuizCB,
 )
-from app.bot.handlers.helpers import truncate_for_telegram
+from app.bot.handlers.helpers import menu_for, truncate_for_telegram
 from app.bot.keyboards import common as common_kb
 from app.config.settings import get_settings
 from app.models.application import Application, ApplicationMessage
@@ -30,11 +30,14 @@ from app.models.enums import (
     ApplicationStatus,
     ApplicationType,
     Audience,
+    ClientCategory,
     ConsultationTopic,
     ContactMethod,
     ContentStatus,
     CourseDelivery,
+    UserRole,
 )
+from app.models.user import User
 from tests.conftest import make_user
 
 TZ = ZoneInfo("Asia/Bishkek")
@@ -76,8 +79,18 @@ def test_callback_data_fits_telegram_limit(payload: CallbackData) -> None:
     assert type(payload).unpack(packed) == payload
 
 
+def test_only_suppliers_get_the_tender_support_button() -> None:
+    def labels(user: User) -> set[str]:
+        return {b.text for row in menu_for(user, client_side=True).keyboard for b in row}
+
+    assert texts.BTN_SUPPORT in labels(make_user(category=ClientCategory.SUPPLIER))
+    assert texts.BTN_SUPPORT not in labels(make_user(category=ClientCategory.PURCHASER))
+    assert texts.BTN_SUPPORT not in labels(make_user(category=None))
+    assert texts.BTN_SUPPORT in labels(make_user(role=UserRole.ADMIN, category=None))
+
+
 def test_menus_differ_per_role() -> None:
-    client_labels = {b.text for row in common_kb.client_menu().keyboard for b in row}
+    client_labels = {b.text for row in common_kb.client_menu(True).keyboard for b in row}
     admin_labels = {b.text for row in common_kb.admin_menu().keyboard for b in row}
     assert texts.BTN_CONSULTATION in client_labels
     assert texts.BTN_ADMIN_APPLICATIONS in admin_labels

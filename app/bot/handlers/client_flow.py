@@ -5,8 +5,11 @@ contact details (only the first time — name and phone are remembered),
 a confirmation screen and the actual submission.
 
     course:        comment ─────────────────────────────┐
-    individual:    goal → preferred time → contact way ──┼─► name/phone ─► confirm
-    consultation:  question → contact way [→ time] ─────┘
+    individual:    goal → preferred time → contact way ──┤
+    consultation:  question → contact way [→ time] ──────┼─► name/phone ─► confirm
+    support:       task → contact way [→ time] ──────────┘
+
+Tender support is offered to suppliers only.
 """
 
 from __future__ import annotations
@@ -26,15 +29,17 @@ from app.bot.handlers.helpers import (
     chat_id_of,
     edit_or_send,
     extract_attachment,
+    menu_for,
     plain_text,
     send_html,
 )
 from app.bot.keyboards import client as kb
-from app.bot.keyboards.common import client_menu, flow_cancel, flow_skip_cancel, share_phone
+from app.bot.keyboards.common import flow_cancel, flow_skip_cancel, share_phone
 from app.bot.states import ClientFlow
 from app.domain.exceptions import DomainError, DuplicateApplicationError
 from app.domain.text import escape_html
 from app.models.enums import (
+    CATEGORY_SERVICES,
     CONTACT_METHOD_LABELS,
     TOPIC_LABELS,
     ApplicationType,
@@ -101,6 +106,35 @@ async def consultation_menu_button(callback: CallbackQuery, bot: Bot, state: FSM
     await _ask(bot, callback, texts.CONSULTATION_INTRO, kb.topics())
 
 
+@router.message(F.text == texts.BTN_SUPPORT)
+async def support_menu(message: Message, user: User, state: FSMContext) -> None:
+    await state.clear()
+    if not _support_offered(user):
+        await answer_html(message, texts.SUPPORT_SUPPLIERS_ONLY)
+        return
+    await state.set_state(ClientFlow.support_task)
+    await state.update_data(kind=ApplicationType.SUPPORT)
+    await answer_html(message, texts.SUPPORT_INTRO, reply_markup=flow_cancel())
+
+
+@router.callback_query(MenuCB.filter(F.to == "support"))
+async def support_menu_button(
+    callback: CallbackQuery, user: User, bot: Bot, state: FSMContext
+) -> None:
+    await state.clear()
+    await callback.answer()
+    if not _support_offered(user):
+        await _ask(bot, callback, texts.SUPPORT_SUPPLIERS_ONLY, None)
+        return
+    await state.set_state(ClientFlow.support_task)
+    await state.update_data(kind=ApplicationType.SUPPORT)
+    await _ask(bot, callback, texts.SUPPORT_INTRO, flow_cancel())
+
+
+def _support_offered(user: User) -> bool:
+    return user.is_admin or ApplicationType.SUPPORT in CATEGORY_SERVICES[user.category]
+
+
 @router.callback_query(FlowCB.filter(F.action == "topic"))
 async def consultation_topic(
     callback: CallbackQuery, callback_data: FlowCB, state: FSMContext
@@ -136,6 +170,7 @@ async def individual_goal(message: Message, state: FSMContext) -> None:
 
 
 @router.message(ClientFlow.consultation_question, F.text | F.photo | F.document | F.video)
+@router.message(ClientFlow.support_task, F.text | F.photo | F.document | F.video)
 async def consultation_question(message: Message, state: FSMContext) -> None:
     attachment = extract_attachment(message)
     text = plain_text(message)
@@ -199,7 +234,10 @@ async def contact_method(
     data = await state.get_data()
     # A consultation by phone or in person needs a time; individual training
     # already asked for it before the contact method.
-    if data.get("kind") == ApplicationType.CONSULTATION and method is not ContactMethod.TELEGRAM:
+    if (
+        data.get("kind") in (ApplicationType.CONSULTATION, ApplicationType.SUPPORT)
+        and method is not ContactMethod.TELEGRAM
+    ):
         await state.set_state(ClientFlow.preferred_time)
         await answer_html(
             callback.message, texts.ASK_PREFERRED_TIME, reply_markup=flow_skip_cancel()
@@ -248,7 +286,9 @@ async def contact_phone(
     await ClientService(session).update_contacts(
         user, full_name=str(data.get("name") or user.full_name), phone=raw
     )
-    await answer_html(message, "✅ Контакты сохранены.", reply_markup=client_menu())
+    await answer_html(
+        message, "✅ Контакты сохранены.", reply_markup=menu_for(user, client_side=True)
+    )
     await _show_confirm(message, user, state)
 
 
@@ -313,6 +353,10 @@ async def _create(
     attachment = None
     if data.get("attachment_file_id"):
         attachment = Attachment(MediaType(data["attachment_type"]), str(data["attachment_file_id"]))
+    if kind is ApplicationType.SUPPORT:
+        return await service.request_support(
+            user, description, method, attachment=attachment, preferred_time=preferred
+        )
     return await service.request_consultation(
         user,
         ConsultationTopic(data["topic"]),
@@ -343,6 +387,7 @@ async def expect_button(message: Message) -> None:
 @router.message(ClientFlow.course_comment)
 @router.message(ClientFlow.individual_goal)
 @router.message(ClientFlow.consultation_question)
+@router.message(ClientFlow.support_task)
 @router.message(ClientFlow.preferred_time)
 @router.message(ClientFlow.name)
 @router.message(ClientFlow.phone)

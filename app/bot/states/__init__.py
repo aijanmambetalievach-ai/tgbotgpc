@@ -11,6 +11,7 @@ class ClientFlow(StatesGroup):
     course_comment = State()
     individual_goal = State()
     consultation_question = State()
+    support_task = State()
     preferred_time = State()
     contact_method = State()
     name = State()

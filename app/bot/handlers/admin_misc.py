@@ -13,9 +13,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.bot import texts
 from app.bot.callbacks import AdminClientCB, BroadcastCB, SettingsCB
 from app.bot.filters import IsAdmin
-from app.bot.handlers.helpers import answer_html, chat_id_of, edit_or_send, rich_text, send_html
+from app.bot.handlers.helpers import (
+    answer_html,
+    chat_id_of,
+    edit_or_send,
+    menu_for,
+    rich_text,
+    send_html,
+)
 from app.bot.keyboards import admin as kb
-from app.bot.keyboards.common import admin_menu, client_menu, flow_cancel
+from app.bot.keyboards.common import admin_menu, flow_cancel
 from app.bot.states import Broadcast, SettingsEditor
 from app.config.settings import get_settings
 from app.database.session import session_scope
@@ -255,11 +262,20 @@ async def settings_save(
 
 
 @router.callback_query(SettingsCB.filter(F.action == "client_mode"))
-async def settings_client_mode(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
+async def settings_client_mode(
+    callback: CallbackQuery, user: User, bot: Bot, state: FSMContext
+) -> None:
     await state.clear()
     await callback.answer()
     await bot.send_message(
         chat_id_of(callback),
         "👁 Меню клиента. Вернуться в админ-панель: /admin",
-        reply_markup=client_menu(),
+        reply_markup=menu_for(user, client_side=True),
     )
+
+
+@router.callback_query(SettingsCB.filter(F.action == "links"))
+async def settings_links(callback: CallbackQuery, bot: Bot) -> None:
+    me = await bot.me()
+    await callback.answer()
+    await send_html(bot, chat_id_of(callback), texts.instagram_links(me.username or "your_bot"))
