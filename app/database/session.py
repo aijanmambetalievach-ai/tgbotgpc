@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
+from urllib.parse import urlsplit
+from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -19,16 +22,39 @@ _engine: AsyncEngine | None = None
 _session_factory: async_sessionmaker[AsyncSession] | None = None
 
 
+def connect_args_for(url: str) -> dict[str, Any]:
+    """Driver options a given database URL needs.
+
+    Behind PgBouncer in transaction mode (Neon's ``-pooler`` hosts) prepared
+    statements cannot be reused across transactions, so asyncpg's statement
+    cache is switched off and every statement gets a unique name.
+    """
+    host = urlsplit(url).hostname or ""
+    if "-pooler" not in host:
+        return {}
+    return {
+        "statement_cache_size": 0,
+        "prepared_statement_cache_size": 0,
+        "prepared_statement_name_func": lambda: f"__asyncpg_{uuid4()}__",
+    }
+
+
 def create_engine_from_settings(settings: Settings | None = None) -> AsyncEngine:
     """Build a fresh engine (used by the app, tests and Alembic)."""
     settings = settings or get_settings()
+    connect_args = connect_args_for(settings.database_url)
     if settings.db_pool_size == 0:
         return create_async_engine(
-            settings.database_url, echo=settings.db_echo, poolclass=NullPool, future=True
+            settings.database_url,
+            echo=settings.db_echo,
+            poolclass=NullPool,
+            connect_args=connect_args,
+            future=True,
         )
     return create_async_engine(
         settings.database_url,
         echo=settings.db_echo,
+        connect_args=connect_args,
         pool_size=settings.db_pool_size,
         max_overflow=settings.db_max_overflow,
         pool_pre_ping=True,

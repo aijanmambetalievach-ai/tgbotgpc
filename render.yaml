@@ -1,7 +1,7 @@
 # Render Blueprint — free deployment (no credit card).
 #
 #   1. Create a free Postgres on https://neon.tech and copy its connection
-#      string (the direct one, without "-pooler" in the host name).
+#      string (pooled or direct — both work).
 #   2. On https://render.com: New → Blueprint → pick this repository.
 #   3. Fill in the three secrets Render asks for and press "Apply".
 #

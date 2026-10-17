@@ -40,9 +40,9 @@
    Google или GitHub.
 2. **Create project**: имя любое, например `tender-bot`. **Region**:
    **AWS Europe Central 1 (Frankfurt)**, ближе всего к Render.
-3. Откроется окно **Connect**. Выключите переключатель **Connection pooling**,
-   чтобы в адресе не было слова `-pooler`.
-4. Скопируйте строку подключения. Она выглядит так:
+3. Нажмите **Connect** («Подключиться»). Переключатель **Connection pooling**
+   («Пул соединений») можно оставить как есть: бот работает с обоими вариантами.
+4. Нажмите **Copy snippet** («Скопировать фрагмент»). Строка выглядит так:
 
    ```
    postgresql://neondb_owner:пароль@ep-xxxx.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
@@ -109,7 +109,7 @@
 | Симптом | Что проверить |
 |---|---|
 | Бот молчит | Render → **Logs**. Ошибка `Unauthorized` — неверный `BOT_TOKEN` (Environment → исправить → Save) |
-| В логах ошибка подключения к БД | `DATABASE_URL` скопирован целиком, без пробелов, и без `-pooler` |
+| В логах ошибка подключения к БД | `DATABASE_URL` скопирован целиком, без пробелов и переносов строк |
 | Нет админ-меню | Ваш ID есть в `BOOTSTRAP_ADMIN_TELEGRAM_IDS`. После правки нажмите **Manual Deploy** |
 | Бот отвечает через минуту | Сервер спал: проверьте монитор в UptimeRobot |
 

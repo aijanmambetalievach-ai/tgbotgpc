@@ -8,6 +8,7 @@ import pytest
 from pydantic import SecretStr
 
 from app.config.settings import WEBHOOK_PATH, Settings, normalize_database_url
+from app.database.session import connect_args_for
 
 
 @pytest.mark.parametrize(
@@ -27,6 +28,15 @@ from app.config.settings import WEBHOOK_PATH, Settings, normalize_database_url
 )
 def test_hosting_connection_strings_are_accepted_as_is(raw: str, expected: str) -> None:
     assert normalize_database_url(raw) == expected
+
+
+def test_pooled_neon_host_disables_prepared_statement_cache() -> None:
+    pooled = "postgresql+asyncpg://u:p@ep-x-pooler.eu-central-1.aws.neon.tech/db?ssl=require"
+    direct = "postgresql+asyncpg://u:p@ep-x.eu-central-1.aws.neon.tech/db?ssl=require"
+    args = connect_args_for(pooled)
+    assert args["statement_cache_size"] == 0
+    assert args["prepared_statement_name_func"]() != args["prepared_statement_name_func"]()
+    assert connect_args_for(direct) == {}
 
 
 def test_platform_port_and_url_are_picked_up(monkeypatch: pytest.MonkeyPatch) -> None:
